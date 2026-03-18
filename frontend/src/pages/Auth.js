@@ -1,18 +1,134 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff, Check, ChevronRight, Shield } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 
+// Slide to Verify Component
+const SlideToVerify = ({ onVerified, verified }) => {
+  const [sliderPos, setSliderPos] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const sliderRef = useRef(null);
+  const containerRef = useRef(null);
+  
+  const handleDragStart = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+  
+  const handleDrag = (e) => {
+    if (!isDragging || verified) return;
+    
+    const container = containerRef.current;
+    const slider = sliderRef.current;
+    if (!container || !slider) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const sliderWidth = slider.offsetWidth;
+    const maxPos = containerRect.width - sliderWidth - 8;
+    
+    let clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+    let newPos = clientX - containerRect.left - sliderWidth / 2;
+    
+    newPos = Math.max(0, Math.min(newPos, maxPos));
+    setSliderPos(newPos);
+    
+    // Check if verified
+    if (newPos >= maxPos - 5) {
+      setSliderPos(maxPos);
+      setIsDragging(false);
+      onVerified(true);
+    }
+  };
+  
+  const handleDragEnd = () => {
+    if (!verified) {
+      setSliderPos(0);
+    }
+    setIsDragging(false);
+  };
+  
+  React.useEffect(() => {
+    const handleMouseMove = (e) => handleDrag(e);
+    const handleMouseUp = () => handleDragEnd();
+    const handleTouchMove = (e) => handleDrag(e);
+    const handleTouchEnd = () => handleDragEnd();
+    
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchmove', handleTouchMove);
+      document.addEventListener('touchend', handleTouchEnd);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, verified]);
+  
+  return (
+    <div 
+      ref={containerRef}
+      className={`relative h-12 rounded-lg overflow-hidden select-none ${
+        verified 
+          ? 'bg-neon/20 border border-neon/30' 
+          : 'bg-space-light border border-white/10'
+      }`}
+      data-testid="slide-verify"
+    >
+      {/* Progress Bar */}
+      <div 
+        className="absolute inset-y-0 left-0 bg-gradient-to-r from-electric/30 to-neon/30 transition-all"
+        style={{ width: verified ? '100%' : `${sliderPos + 44}px` }}
+      />
+      
+      {/* Text */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        {verified ? (
+          <span className="text-sm text-neon font-medium flex items-center gap-2">
+            <Check className="w-4 h-4" /> Verified
+          </span>
+        ) : (
+          <span className="text-sm text-gray-400 flex items-center gap-1">
+            Slide to verify <ChevronRight className="w-4 h-4" />
+          </span>
+        )}
+      </div>
+      
+      {/* Slider */}
+      <div
+        ref={sliderRef}
+        className={`absolute top-1 left-1 bottom-1 w-10 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing transition-colors ${
+          verified 
+            ? 'bg-neon text-space' 
+            : 'bg-white/10 text-white hover:bg-white/20'
+        }`}
+        style={{ transform: `translateX(${sliderPos}px)` }}
+        onMouseDown={handleDragStart}
+        onTouchStart={handleDragStart}
+      >
+        {verified ? <Check className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+      </div>
+    </div>
+  );
+};
+
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: '',
+    confirmPassword: '',
     full_name: ''
   });
 
@@ -20,8 +136,39 @@ const Auth = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
+  // Reset verification when switching tabs
+  const handleTabSwitch = (toLogin) => {
+    setIsLogin(toLogin);
+    setVerified(false);
+    setTermsAccepted(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validation
+    if (!verified) {
+      toast.error('Please complete the verification slider');
+      return;
+    }
+    
+    if (!isLogin) {
+      if (!termsAccepted) {
+        toast.error('Please accept the Terms of Service and Privacy Policy');
+        return;
+      }
+      
+      if (formData.password !== formData.confirmPassword) {
+        toast.error('Passwords do not match');
+        return;
+      }
+      
+      if (formData.password.length < 6) {
+        toast.error('Password must be at least 6 characters');
+        return;
+      }
+    }
+    
     setLoading(true);
 
     try {
@@ -79,7 +226,7 @@ const Auth = () => {
               className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                 isLogin ? 'bg-white/10 text-white shadow-sm' : 'text-gray-400 hover:text-white'
               }`}
-              onClick={() => setIsLogin(true)}
+              onClick={() => handleTabSwitch(true)}
               data-testid="login-tab"
             >
               Sign In
@@ -88,7 +235,7 @@ const Auth = () => {
               className={`flex-1 py-2 text-sm font-medium rounded-md transition-all ${
                 !isLogin ? 'bg-white/10 text-white shadow-sm' : 'text-gray-400 hover:text-white'
               }`}
-              onClick={() => setIsLogin(false)}
+              onClick={() => handleTabSwitch(false)}
               data-testid="register-tab"
             >
               Sign Up
@@ -96,31 +243,34 @@ const Auth = () => {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {!isLogin && (
-              <motion.div 
-                className="space-y-1"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-              >
-                <label className="text-xs text-gray-400 ml-1">Full Name</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                    <User className="w-4 h-4" />
-                  </span>
-                  <input 
-                    type="text" 
-                    name="full_name"
-                    value={formData.full_name}
-                    onChange={handleChange}
-                    className="input-field pl-9" 
-                    placeholder="John Doe"
-                    required={!isLogin}
-                    data-testid="fullname-input"
-                  />
-                </div>
-              </motion.div>
-            )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <AnimatePresence mode="wait">
+              {!isLogin && (
+                <motion.div 
+                  className="space-y-1"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <label className="text-xs text-gray-400 ml-1">Full Name</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                      <User className="w-4 h-4" />
+                    </span>
+                    <input 
+                      type="text" 
+                      name="full_name"
+                      value={formData.full_name}
+                      onChange={handleChange}
+                      className="input-field pl-9" 
+                      placeholder="John Doe"
+                      required={!isLogin}
+                      data-testid="fullname-input"
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="space-y-1">
               <label className="text-xs text-gray-400 ml-1">Email Address</label>
@@ -175,12 +325,101 @@ const Auth = () => {
               </div>
             </div>
 
+            {/* Confirm Password - Only for Sign Up */}
+            <AnimatePresence mode="wait">
+              {!isLogin && (
+                <motion.div 
+                  className="space-y-1"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <label className="text-xs text-gray-400 ml-1">Confirm Password</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                      <Lock className="w-4 h-4" />
+                    </span>
+                    <input 
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      name="confirmPassword"
+                      value={formData.confirmPassword}
+                      onChange={handleChange}
+                      className={`input-field pl-9 pr-10 ${
+                        formData.confirmPassword && formData.password !== formData.confirmPassword 
+                          ? 'border-vibrant focus:border-vibrant' 
+                          : formData.confirmPassword && formData.password === formData.confirmPassword
+                            ? 'border-neon/50 focus:border-neon'
+                            : ''
+                      }`}
+                      placeholder="••••••••"
+                      required={!isLogin}
+                      data-testid="confirm-password-input"
+                    />
+                    <button 
+                      type="button"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {formData.confirmPassword && formData.password !== formData.confirmPassword && (
+                    <p className="text-xs text-vibrant ml-1">Passwords do not match</p>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Terms & Privacy - Only for Sign Up */}
+            <AnimatePresence mode="wait">
+              {!isLogin && (
+                <motion.div 
+                  className="pt-2"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <div className="relative mt-0.5">
+                      <input 
+                        type="checkbox"
+                        checked={termsAccepted}
+                        onChange={(e) => setTermsAccepted(e.target.checked)}
+                        className="sr-only"
+                        data-testid="terms-checkbox"
+                      />
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                        termsAccepted 
+                          ? 'bg-neon border-neon' 
+                          : 'border-white/20 group-hover:border-white/40'
+                      }`}>
+                        {termsAccepted && <Check className="w-3 h-3 text-space" />}
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400 leading-relaxed">
+                      I agree to the{' '}
+                      <a href="#" className="text-electric hover:text-neon transition-colors">Terms of Service</a>,{' '}
+                      <a href="#" className="text-electric hover:text-neon transition-colors">Privacy Policy</a>, and{' '}
+                      <a href="#" className="text-electric hover:text-neon transition-colors">Risk Disclosure</a>.
+                      I understand that trading involves significant risk of loss.
+                    </span>
+                  </label>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Slide to Verify */}
+            <div className="pt-2">
+              <SlideToVerify verified={verified} onVerified={setVerified} />
+            </div>
+
             <button 
               type="submit" 
-              disabled={loading}
+              disabled={loading || !verified || (!isLogin && !termsAccepted)}
               className="w-full py-3 rounded-lg bg-gradient-to-r from-electric to-neon text-space font-semibold text-sm 
                        hover:shadow-[0_0_20px_rgba(42,245,255,0.3)] transition-all transform hover:scale-[1.02] 
-                       active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                       active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+                       flex items-center justify-center gap-2"
               data-testid="submit-btn"
             >
               {loading ? (
@@ -193,7 +432,7 @@ const Auth = () => {
               )}
             </button>
             
-            <div className="relative flex items-center py-4">
+            <div className="relative flex items-center py-3">
               <div className="flex-grow border-t border-white/10"></div>
               <span className="flex-shrink-0 mx-4 text-xs text-gray-500">Or continue with</span>
               <div className="flex-grow border-t border-white/10"></div>
@@ -224,10 +463,12 @@ const Auth = () => {
             </div>
           </form>
 
-          {/* Risk Warning */}
-          <p className="mt-6 text-xs text-gray-500 text-center">
-            By continuing, you agree to our Terms of Service and acknowledge our Risk Disclosure.
-          </p>
+          {/* Risk Warning for Login */}
+          {isLogin && (
+            <p className="mt-6 text-xs text-gray-500 text-center">
+              By signing in, you agree to our Terms of Service and acknowledge our Risk Disclosure.
+            </p>
+          )}
         </motion.div>
       </section>
     </div>

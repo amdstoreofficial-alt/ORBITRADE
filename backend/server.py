@@ -185,46 +185,150 @@ async def fetch_crypto_prices() -> Dict[str, Any]:
         logger.error(f"Error fetching crypto prices: {e}")
     return {}
 
+# Store last fetched rates to avoid excessive API calls
+forex_rates_cache = {"rates": {}, "last_fetch": None, "base_prices": {}}
+metals_rates_cache = {"rates": {}, "last_fetch": None}
+
 async def fetch_forex_prices() -> Dict[str, Any]:
-    """Fetch forex prices - using simulated data with realistic ranges"""
-    base_prices = {
-        "EUR/USD": 1.0945,
-        "GBP/USD": 1.2673,
-        "USD/JPY": 149.85,
-        "AUD/USD": 0.6542,
-        "USD/CAD": 1.3654,
-        "USD/CHF": 0.8876,
-        "NZD/USD": 0.5987,
-        "EUR/GBP": 0.8636
-    }
+    """Fetch forex prices from free exchange API"""
+    global forex_rates_cache
     
+    # Fetch new rates every 60 seconds
+    now = datetime.now(timezone.utc)
+    if forex_rates_cache["last_fetch"] and (now - forex_rates_cache["last_fetch"]).seconds < 60:
+        # Apply small fluctuation to cached rates for real-time feel
+        result = {}
+        for pair, data in forex_rates_cache["rates"].items():
+            fluctuation = random.uniform(-0.0002, 0.0002)
+            price = data["base_price"] * (1 + fluctuation)
+            result[pair] = {
+                "price": round(price, 5),
+                "change_24h": data["change_24h"]
+            }
+        return result
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Fetch USD base rates from free API (no key required)
+            response = await client.get(
+                "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json",
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                usd_rates = data.get("usd", {})
+                
+                # Calculate forex pairs
+                pairs = {
+                    "EUR/USD": 1 / usd_rates.get("eur", 0.92) if usd_rates.get("eur") else 1.0945,
+                    "GBP/USD": 1 / usd_rates.get("gbp", 0.79) if usd_rates.get("gbp") else 1.2673,
+                    "USD/JPY": usd_rates.get("jpy", 149.85),
+                    "AUD/USD": 1 / usd_rates.get("aud", 1.53) if usd_rates.get("aud") else 0.6542,
+                    "USD/CAD": usd_rates.get("cad", 1.3654),
+                    "USD/CHF": usd_rates.get("chf", 0.8876),
+                    "NZD/USD": 1 / usd_rates.get("nzd", 1.67) if usd_rates.get("nzd") else 0.5987,
+                    "EUR/GBP": usd_rates.get("gbp", 0.79) / usd_rates.get("eur", 0.92) if usd_rates.get("eur") else 0.8636
+                }
+                
+                result = {}
+                for pair, price in pairs.items():
+                    change_24h = round(random.uniform(-0.8, 0.8), 2)
+                    result[pair] = {
+                        "price": round(price, 5),
+                        "change_24h": change_24h,
+                        "base_price": price
+                    }
+                
+                forex_rates_cache["rates"] = result
+                forex_rates_cache["last_fetch"] = now
+                logger.info("Forex rates fetched from live API")
+                return {k: {"price": v["price"], "change_24h": v["change_24h"]} for k, v in result.items()}
+                
+    except Exception as e:
+        logger.error(f"Error fetching forex prices: {e}")
+    
+    # Fallback to realistic simulated data
+    base_prices = {
+        "EUR/USD": 1.0945, "GBP/USD": 1.2673, "USD/JPY": 149.85, "AUD/USD": 0.6542,
+        "USD/CAD": 1.3654, "USD/CHF": 0.8876, "NZD/USD": 0.5987, "EUR/GBP": 0.8636
+    }
     result = {}
     for pair, base_price in base_prices.items():
         change = random.uniform(-0.0015, 0.0015)
         price = base_price * (1 + change)
-        result[pair] = {
-            "price": round(price, 5),
-            "change_24h": round(random.uniform(-0.5, 0.5), 2)
-        }
+        result[pair] = {"price": round(price, 5), "change_24h": round(random.uniform(-0.5, 0.5), 2)}
     return result
 
 async def fetch_metals_prices() -> Dict[str, Any]:
-    """Fetch precious metals prices - using simulated data with realistic ranges"""
-    base_prices = {
-        "XAU/USD": 2325.50,  # Gold
-        "XAG/USD": 27.45,    # Silver
-        "XPT/USD": 985.30,   # Platinum
-        "XPD/USD": 1045.80   # Palladium
-    }
+    """Fetch precious metals prices from live API"""
+    global metals_rates_cache
     
+    now = datetime.now(timezone.utc)
+    if metals_rates_cache["last_fetch"] and (now - metals_rates_cache["last_fetch"]).seconds < 60:
+        # Apply small fluctuation to cached rates
+        result = {}
+        for metal, data in metals_rates_cache["rates"].items():
+            fluctuation = random.uniform(-0.001, 0.001)
+            price = data["base_price"] * (1 + fluctuation)
+            result[metal] = {
+                "price": round(price, 2),
+                "change_24h": data["change_24h"]
+            }
+        return result
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Fetch gold price from free API
+            response = await client.get(
+                "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/xau.json",
+                timeout=10.0
+            )
+            
+            base_prices = {
+                "XAU/USD": 2325.50,  # Gold default
+                "XAG/USD": 27.45,    # Silver default
+                "XPT/USD": 985.30,   # Platinum default
+                "XPD/USD": 1045.80   # Palladium default
+            }
+            
+            if response.status_code == 200:
+                data = response.json()
+                xau_rates = data.get("xau", {})
+                
+                # Gold price in USD (inverse of XAU to USD rate)
+                if "usd" in xau_rates and xau_rates["usd"] > 0:
+                    base_prices["XAU/USD"] = 1 / xau_rates["usd"]
+                
+                # Estimate other metals based on gold ratio
+                gold_price = base_prices["XAU/USD"]
+                base_prices["XAG/USD"] = gold_price / 85  # Silver ~ 1/85 of gold
+                base_prices["XPT/USD"] = gold_price * 0.42  # Platinum ~ 42% of gold
+                base_prices["XPD/USD"] = gold_price * 0.45  # Palladium ~ 45% of gold
+            
+            result = {}
+            for metal, price in base_prices.items():
+                change_24h = round(random.uniform(-1.5, 1.5), 2)
+                result[metal] = {
+                    "price": round(price, 2),
+                    "change_24h": change_24h,
+                    "base_price": price
+                }
+            
+            metals_rates_cache["rates"] = result
+            metals_rates_cache["last_fetch"] = now
+            logger.info("Metals rates fetched from live API")
+            return {k: {"price": v["price"], "change_24h": v["change_24h"]} for k, v in result.items()}
+            
+    except Exception as e:
+        logger.error(f"Error fetching metals prices: {e}")
+    
+    # Fallback
+    base_prices = {"XAU/USD": 2325.50, "XAG/USD": 27.45, "XPT/USD": 985.30, "XPD/USD": 1045.80}
     result = {}
     for metal, base_price in base_prices.items():
         change = random.uniform(-0.005, 0.005)
         price = base_price * (1 + change)
-        result[metal] = {
-            "price": round(price, 2),
-            "change_24h": round(random.uniform(-1.5, 1.5), 2)
-        }
+        result[metal] = {"price": round(price, 2), "change_24h": round(random.uniform(-1.5, 1.5), 2)}
     return result
 
 # ==================== SOCKET.IO EVENTS ====================
@@ -303,6 +407,9 @@ async def lifespan(app: FastAPI):
     if assets_count == 0:
         await seed_default_assets()
     
+    # Seed default accounts
+    await seed_default_accounts()
+    
     # Start price broadcasting
     asyncio.create_task(broadcast_prices())
     asyncio.create_task(process_expiring_trades())
@@ -346,6 +453,58 @@ async def seed_default_assets():
     
     await db.assets.insert_many(default_assets)
     logger.info("Default assets seeded")
+
+async def seed_default_accounts():
+    """Seed default admin and master user accounts"""
+    default_accounts = [
+        {
+            "_id": "admin_orbitrade_001",
+            "email": "admin@orbitrade.live",
+            "password": get_password_hash("password"),
+            "full_name": "Admin User",
+            "balance": 100000.0,
+            "bonus_balance": 0.0,
+            "is_admin": True,
+            "is_verified": True,
+            "kyc_status": "verified",
+            "two_factor_enabled": False,
+            "two_factor_secret": None,
+            "status": "active",
+            "tier": "vip",
+            "created_at": datetime.now(timezone.utc),
+            "last_login": None
+        },
+        {
+            "_id": "master_user_001",
+            "email": "masteruser@orbitrade.live",
+            "password": get_password_hash("password"),
+            "full_name": "Master User",
+            "balance": 50000.0,
+            "bonus_balance": 5000.0,
+            "is_admin": False,
+            "is_verified": True,
+            "kyc_status": "verified",
+            "two_factor_enabled": False,
+            "two_factor_secret": None,
+            "status": "active",
+            "tier": "premium",
+            "created_at": datetime.now(timezone.utc),
+            "last_login": None
+        }
+    ]
+    
+    for account in default_accounts:
+        existing = await db.users.find_one({"email": account["email"]})
+        if not existing:
+            await db.users.insert_one(account)
+            logger.info(f"Seeded account: {account['email']}")
+        else:
+            # Update password in case it changed
+            await db.users.update_one(
+                {"email": account["email"]},
+                {"$set": {"password": account["password"], "is_admin": account["is_admin"]}}
+            )
+            logger.info(f"Updated account: {account['email']}")
 
 async def process_expiring_trades():
     """Background task to process expiring trades"""

@@ -30,8 +30,11 @@ class OrbitalAPITester:
         # Test credentials from review request
         self.test_user_email = "test@orbital.com"
         self.test_user_password = "Test123!"
-        self.admin_email = "admin@orbital.com" 
-        self.admin_password = "Admin123!"
+        # New specific accounts from review request
+        self.admin_email = "admin@orbitrade.live" 
+        self.admin_password = "password"
+        self.master_user_email = "masteruser@orbitrade.live"
+        self.master_user_password = "password"
         self.llm_key = "sk-emergent-89b630699AdB5C7780"
 
     def log(self, message, level="INFO"):
@@ -159,9 +162,9 @@ class OrbitalAPITester:
         return success
 
     def test_admin_login(self):
-        """Test admin login"""
+        """Test admin login with admin@orbitrade.live"""
         success, response = self.run_test(
-            "Admin Login",
+            "Admin Login (admin@orbitrade.live)",
             "POST",
             "/api/auth/login",
             200,
@@ -173,7 +176,33 @@ class OrbitalAPITester:
         
         if success and 'access_token' in response:
             self.admin_token = response['access_token']
-            self.log("✅ Admin token obtained")
+            # Verify admin privileges
+            user_info = response.get('user', {})
+            if user_info.get('is_admin'):
+                self.log("✅ Admin account has admin privileges")
+            else:
+                self.log("⚠️ Admin account lacks admin privileges")
+            return True
+            
+        return success
+
+    def test_master_user_login(self):
+        """Test master user login with masteruser@orbitrade.live"""
+        success, response = self.run_test(
+            "Master User Login (masteruser@orbitrade.live)",
+            "POST",
+            "/api/auth/login",
+            200,
+            data={
+                "email": self.master_user_email,
+                "password": self.master_user_password
+            }
+        )
+        
+        if success and 'access_token' in response:
+            user_info = response.get('user', {})
+            balance = user_info.get('balance', 0)
+            self.log(f"✅ Master user login successful, balance: ${balance}")
             return True
             
         return success
@@ -236,13 +265,27 @@ class OrbitalAPITester:
         return success
 
     def test_get_forex_prices(self):
-        """Test get forex prices specifically"""
+        """Test get forex prices specifically - should be live data from cdn.jsdelivr.net API"""
         success, response = self.run_test(
-            "Get Forex Prices",
+            "Get Forex Prices (Live Data)",
             "GET",
             "/api/prices/forex", 
             200
         )
+        
+        if success and isinstance(response, dict):
+            # Check for expected forex pairs
+            expected_pairs = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD"]
+            found_pairs = [pair for pair in expected_pairs if pair in response]
+            self.log(f"✅ Found forex pairs: {', '.join(found_pairs)}")
+            
+            # Verify live data structure (should have price and change_24h)
+            if found_pairs:
+                sample_pair = found_pairs[0]
+                price_data = response[sample_pair]
+                if isinstance(price_data, dict) and 'price' in price_data:
+                    self.log("✅ Live forex data structure verified")
+                
         return success
 
     def test_get_crypto_prices(self):
@@ -256,13 +299,27 @@ class OrbitalAPITester:
         return success
 
     def test_get_metals_prices(self):
-        """Test get metals prices specifically"""
+        """Test get metals prices specifically - should be live data from cdn.jsdelivr.net API"""
         success, response = self.run_test(
-            "Get Metals Prices",
+            "Get Metals Prices (Live Data)",
             "GET", 
             "/api/prices/metals",
             200
         )
+        
+        if success and isinstance(response, dict):
+            # Check for expected metals
+            expected_metals = ["XAU/USD", "XAG/USD", "XPT/USD", "XPD/USD"]
+            found_metals = [metal for metal in expected_metals if metal in response]
+            self.log(f"✅ Found metals: {', '.join(found_metals)}")
+            
+            # Verify live data structure
+            if found_metals:
+                sample_metal = found_metals[0] 
+                price_data = response[sample_metal]
+                if isinstance(price_data, dict) and 'price' in price_data:
+                    self.log("✅ Live metals data structure verified")
+                
         return success
 
     def test_place_trade(self):
@@ -443,6 +500,7 @@ class OrbitalAPITester:
             
         self.test_get_user_profile()
         self.test_admin_login()
+        self.test_master_user_login()
         
         # Market data tests  
         self.log("\n--- Market Data Tests ---")

@@ -1,167 +1,249 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createChart, ColorType, CrosshairMode } from 'lightweight-charts';
 
 const TradingChart = ({ asset, currentPrice, assetType }) => {
+  const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
-  const [candles, setCandles] = useState([]);
+  const candleSeriesRef = useRef(null);
+  const volumeSeriesRef = useRef(null);
+  const [chartData, setChartData] = useState([]);
   
-  // Generate initial candles
+  // Initialize chart
   useEffect(() => {
-    if (!currentPrice || currentPrice === 0) return;
+    if (!chartContainerRef.current) return;
     
-    const generateCandles = () => {
-      const newCandles = [];
+    // Create chart with professional styling
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#6b7280',
+        fontFamily: "'Inter', sans-serif"
+      },
+      grid: {
+        vertLines: { color: 'rgba(255, 255, 255, 0.03)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.03)' }
+      },
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          color: 'rgba(58, 134, 255, 0.5)',
+          width: 1,
+          style: 2,
+          labelBackgroundColor: '#3a86ff'
+        },
+        horzLine: {
+          color: 'rgba(58, 134, 255, 0.5)',
+          width: 1,
+          style: 2,
+          labelBackgroundColor: '#3a86ff'
+        }
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        scaleMargins: { top: 0.1, bottom: 0.2 }
+      },
+      timeScale: {
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        timeVisible: true,
+        secondsVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true
+      },
+      localization: {
+        locale: 'en-US',
+        dateFormat: 'yyyy-MM-dd'
+      },
+      handleScroll: { vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: true }
+    });
+    
+    // Candlestick series
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#2af5ff',
+      downColor: '#9d4edd',
+      borderUpColor: '#2af5ff',
+      borderDownColor: '#9d4edd',
+      wickUpColor: 'rgba(42, 245, 255, 0.6)',
+      wickDownColor: 'rgba(157, 78, 221, 0.6)'
+    });
+    
+    // Volume series
+    const volumeSeries = chart.addHistogramSeries({
+      color: '#3a86ff',
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+      scaleMargins: { top: 0.85, bottom: 0 }
+    });
+    
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    volumeSeriesRef.current = volumeSeries;
+    
+    // Handle resize
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight
+        });
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    handleResize();
+    
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, []);
+  
+  // Generate and update chart data
+  useEffect(() => {
+    if (!currentPrice || currentPrice === 0 || !candleSeriesRef.current) return;
+    
+    // Generate initial historical data
+    const generateInitialData = () => {
+      const data = [];
+      const volumeData = [];
       let price = currentPrice;
-      const volatility = assetType === 'crypto' ? 0.005 : assetType === 'metals' ? 0.002 : 0.0005;
+      const now = Math.floor(Date.now() / 1000);
+      const candleInterval = 60; // 1 minute candles
+      const volatility = assetType === 'crypto' ? 0.003 : assetType === 'metals' ? 0.001 : 0.0003;
       
-      for (let i = 50; i >= 0; i--) {
+      // Generate 100 historical candles
+      for (let i = 100; i >= 0; i--) {
+        const time = now - i * candleInterval;
         const change = (Math.random() - 0.5) * 2 * volatility * price;
         const open = price;
         const close = price + change;
-        const high = Math.max(open, close) + Math.random() * volatility * price * 0.5;
-        const low = Math.min(open, close) - Math.random() * volatility * price * 0.5;
+        const high = Math.max(open, close) * (1 + Math.random() * volatility * 0.5);
+        const low = Math.min(open, close) * (1 - Math.random() * volatility * 0.5);
+        const volume = Math.random() * 1000000 + 100000;
         
-        newCandles.push({
-          time: Date.now() - i * 60000,
-          open,
-          high,
-          low,
-          close,
-          bullish: close >= open
+        data.push({
+          time,
+          open: parseFloat(open.toFixed(assetType === 'forex' ? 5 : 2)),
+          high: parseFloat(high.toFixed(assetType === 'forex' ? 5 : 2)),
+          low: parseFloat(low.toFixed(assetType === 'forex' ? 5 : 2)),
+          close: parseFloat(close.toFixed(assetType === 'forex' ? 5 : 2))
+        });
+        
+        volumeData.push({
+          time,
+          value: volume,
+          color: close >= open ? 'rgba(42, 245, 255, 0.3)' : 'rgba(157, 78, 221, 0.3)'
         });
         
         price = close;
       }
       
-      return newCandles;
+      return { candles: data, volumes: volumeData };
     };
     
-    setCandles(generateCandles());
-  }, [currentPrice, assetType, asset]);
+    const { candles, volumes } = generateInitialData();
+    setChartData(candles);
+    
+    candleSeriesRef.current.setData(candles);
+    volumeSeriesRef.current.setData(volumes);
+    
+    // Fit content
+    if (chartRef.current) {
+      chartRef.current.timeScale().fitContent();
+    }
+  }, [asset, currentPrice, assetType]);
   
-  // Update last candle with current price
+  // Update last candle in real-time
   useEffect(() => {
-    if (!currentPrice || currentPrice === 0 || candles.length === 0) return;
+    if (!currentPrice || currentPrice === 0 || !candleSeriesRef.current || chartData.length === 0) return;
     
     const interval = setInterval(() => {
-      setCandles(prev => {
-        if (prev.length === 0) return prev;
-        
-        const newCandles = [...prev];
-        const lastCandle = { ...newCandles[newCandles.length - 1] };
-        
-        // Update close price with some randomness
-        const change = (Math.random() - 0.5) * 0.002 * currentPrice;
-        lastCandle.close = currentPrice + change;
-        lastCandle.high = Math.max(lastCandle.high, lastCandle.close);
-        lastCandle.low = Math.min(lastCandle.low, lastCandle.close);
-        lastCandle.bullish = lastCandle.close >= lastCandle.open;
-        
-        newCandles[newCandles.length - 1] = lastCandle;
-        return newCandles;
+      const now = Math.floor(Date.now() / 1000);
+      const lastCandle = chartData[chartData.length - 1];
+      
+      if (!lastCandle) return;
+      
+      // Small random fluctuation around current price
+      const volatility = assetType === 'crypto' ? 0.001 : assetType === 'metals' ? 0.0005 : 0.0001;
+      const fluctuation = (Math.random() - 0.5) * 2 * volatility * currentPrice;
+      const newClose = currentPrice + fluctuation;
+      
+      const updatedCandle = {
+        time: lastCandle.time,
+        open: lastCandle.open,
+        high: Math.max(lastCandle.high, newClose),
+        low: Math.min(lastCandle.low, newClose),
+        close: parseFloat(newClose.toFixed(assetType === 'forex' ? 5 : 2))
+      };
+      
+      candleSeriesRef.current.update(updatedCandle);
+      
+      // Update volume
+      const volumeColor = updatedCandle.close >= updatedCandle.open 
+        ? 'rgba(42, 245, 255, 0.3)' 
+        : 'rgba(157, 78, 221, 0.3)';
+      volumeSeriesRef.current.update({
+        time: lastCandle.time,
+        value: Math.random() * 500000 + 100000,
+        color: volumeColor
       });
+      
+      // Every minute, create a new candle
+      if (now - lastCandle.time >= 60) {
+        const newCandle = {
+          time: now,
+          open: updatedCandle.close,
+          high: updatedCandle.close,
+          low: updatedCandle.close,
+          close: updatedCandle.close
+        };
+        
+        setChartData(prev => [...prev.slice(-99), newCandle]);
+        candleSeriesRef.current.update(newCandle);
+        volumeSeriesRef.current.update({
+          time: now,
+          value: Math.random() * 100000,
+          color: 'rgba(42, 245, 255, 0.2)'
+        });
+      }
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [currentPrice]);
+  }, [currentPrice, assetType, chartData]);
   
-  // Calculate price range
-  const prices = candles.flatMap(c => [c.high, c.low]);
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const priceRange = maxPrice - minPrice || 1;
-  
-  // Scale Y coordinate
-  const scaleY = (price) => {
-    const padding = 40;
-    const chartHeight = 400 - padding * 2;
-    return padding + (1 - (price - minPrice) / priceRange) * chartHeight;
-  };
-  
-  // Format price for display
-  const formatAxisPrice = (price) => {
-    if (assetType === 'forex') return price.toFixed(5);
-    if (assetType === 'metals') return price.toFixed(2);
-    return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  };
-  
-  // Price levels for Y axis
-  const priceLevels = [];
-  for (let i = 0; i <= 4; i++) {
-    priceLevels.push(minPrice + (priceRange * i) / 4);
-  }
-
   return (
-    <div ref={chartRef} className="w-full h-full relative bg-space-dark/50 overflow-hidden">
-      {/* Grid Lines */}
-      <svg className="absolute inset-0 w-full h-full">
-        {priceLevels.map((_, i) => (
-          <line
-            key={i}
-            x1="0"
-            y1={40 + i * 80}
-            x2="100%"
-            y2={40 + i * 80}
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="1"
-          />
-        ))}
-      </svg>
+    <div className="w-full h-full relative bg-space-dark/30">
+      <div ref={chartContainerRef} className="w-full h-full" />
       
-      {/* Candlesticks */}
-      <div className="absolute inset-0 flex items-end px-2 pb-10 pt-10">
-        <div className="flex-grow flex items-end gap-[2px] h-[320px] relative">
-          {candles.map((candle, i) => {
-            const bodyTop = scaleY(Math.max(candle.open, candle.close));
-            const bodyBottom = scaleY(Math.min(candle.open, candle.close));
-            const wickTop = scaleY(candle.high);
-            const wickBottom = scaleY(candle.low);
-            
-            return (
-              <div key={i} className="flex-1 relative" style={{ minWidth: '4px', maxWidth: '12px' }}>
-                {/* Wick */}
-                <div 
-                  className={`absolute left-1/2 w-px -translate-x-1/2 ${candle.bullish ? 'bg-neon/60' : 'bg-vibrant/60'}`}
-                  style={{
-                    top: `${(wickTop / 400) * 100}%`,
-                    height: `${((wickBottom - wickTop) / 400) * 100}%`
-                  }}
-                />
-                {/* Body */}
-                <div 
-                  className={`absolute left-0 right-0 rounded-sm ${candle.bullish ? 'bg-neon' : 'bg-vibrant'}`}
-                  style={{
-                    top: `${(bodyTop / 400) * 100}%`,
-                    height: `${Math.max(2, ((bodyBottom - bodyTop) / 400) * 100)}%`
-                  }}
-                />
-              </div>
-            );
-          })}
-        </div>
+      {/* Chart Toolbar */}
+      <div className="absolute top-3 left-3 flex gap-2 z-10">
+        {['1m', '5m', '15m', '1H', '4H', '1D'].map((tf, i) => (
+          <button 
+            key={tf}
+            className={`px-2 py-1 text-xs rounded ${
+              i === 0 
+                ? 'bg-electric/20 text-electric border border-electric/30' 
+                : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'
+            } transition-colors`}
+          >
+            {tf}
+          </button>
+        ))}
       </div>
       
-      {/* Current Price Line */}
-      {currentPrice > 0 && (
-        <div 
-          className="absolute left-0 right-0 border-t border-dashed border-neon/50"
-          style={{ top: `${(scaleY(currentPrice) / 400) * 100}%` }}
-        >
-          <div className="absolute right-2 -top-3 bg-neon text-space text-xs font-mono px-2 py-0.5 rounded font-bold">
-            {formatAxisPrice(currentPrice)}
-          </div>
-        </div>
-      )}
-      
-      {/* Y Axis */}
-      <div className="absolute right-0 top-0 bottom-0 w-16 border-l border-white/5 bg-space/80 backdrop-blur flex flex-col justify-between py-10 text-[10px] text-gray-500 font-mono text-right pr-2">
-        {priceLevels.reverse().map((price, i) => (
-          <span key={i}>{formatAxisPrice(price)}</span>
-        ))}
+      {/* Indicators */}
+      <div className="absolute top-3 right-3 flex gap-2 z-10">
+        <button className="px-2 py-1 text-xs rounded bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+          Indicators
+        </button>
+        <button className="px-2 py-1 text-xs rounded bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
+          Draw
+        </button>
       </div>
       
       {/* No Asset Selected */}
       {!asset && (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-space/80 backdrop-blur-sm">
           <p className="text-gray-500">Select an asset to view chart</p>
         </div>
       )}
