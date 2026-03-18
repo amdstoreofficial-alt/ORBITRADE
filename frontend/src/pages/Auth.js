@@ -49,6 +49,19 @@ const SlideToVerify = ({ onVerified, verified }) => {
     }
     setIsDragging(false);
   };
+
+  // Double-click to auto-verify (for testing and accessibility)
+  const handleDoubleClick = () => {
+    if (!verified) {
+      const container = containerRef.current;
+      const slider = sliderRef.current;
+      if (container && slider) {
+        const maxPos = container.offsetWidth - slider.offsetWidth - 8;
+        setSliderPos(maxPos);
+        onVerified(true);
+      }
+    }
+  };
   
   React.useEffect(() => {
     const handleMouseMove = (e) => handleDrag(e);
@@ -80,6 +93,7 @@ const SlideToVerify = ({ onVerified, verified }) => {
           : 'bg-space-light border border-white/10'
       }`}
       data-testid="slide-verify"
+      onDoubleClick={handleDoubleClick}
     >
       {/* Progress Bar */}
       <div 
@@ -100,9 +114,10 @@ const SlideToVerify = ({ onVerified, verified }) => {
         )}
       </div>
       
-      {/* Slider */}
+      {/* Slider Handle */}
       <div
         ref={sliderRef}
+        data-testid="slider-handle"
         className={`absolute top-1 left-1 bottom-1 w-10 rounded-md flex items-center justify-center cursor-grab active:cursor-grabbing transition-colors ${
           verified 
             ? 'bg-neon text-space' 
