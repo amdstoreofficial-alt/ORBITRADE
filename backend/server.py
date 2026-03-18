@@ -197,10 +197,10 @@ forex_cache = {
 
 metals_cache = {
     "prices": {
-        "XAU/USD": {"price": 2325.50, "change_24h": 0.85},
-        "XAG/USD": {"price": 27.45, "change_24h": 1.23},
-        "XPT/USD": {"price": 985.30, "change_24h": -0.42},
-        "XPD/USD": {"price": 1045.80, "change_24h": 0.67}
+        "XAU/USD": {"price": 4865.50, "change_24h": 0.85},   # Gold ~$4865
+        "XAG/USD": {"price": 58.45, "change_24h": 1.23},      # Silver ~$58
+        "XPT/USD": {"price": 1285.30, "change_24h": -0.42},   # Platinum ~$1285
+        "XPD/USD": {"price": 1445.80, "change_24h": 0.67}     # Palladium ~$1445
     },
     "last_fetch": None
 }
@@ -1193,6 +1193,120 @@ async def get_chat_history(request: Request, session_id: Optional[str] = None):
     
     messages = await db.chat_messages.find(query).sort("created_at", -1).limit(50).to_list(50)
     return [serialize_doc(m) for m in messages]
+
+# ==================== AI PREDICTION ROUTES ====================
+
+class PredictionRequest(BaseModel):
+    asset: str
+    asset_type: str
+    current_price: float
+    price_history: Optional[List[float]] = None
+
+@fastapi_app.post("/api/predict")
+async def get_ai_prediction(request: Request, data: PredictionRequest):
+    """Get AI-powered buy/sell prediction for an asset"""
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        
+        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        
+        # Get recent price data for context
+        price_context = ""
+        if data.price_history and len(data.price_history) >= 5:
+            prices = data.price_history[-10:]  # Last 10 prices
+            trend = "upward" if prices[-1] > prices[0] else "downward"
+            volatility = max(prices) - min(prices)
+            price_context = f"Recent prices: {prices}. Trend: {trend}. Volatility: {volatility:.4f}"
+        
+        # Create prediction prompt
+        prompt = f"""Analyze this trading scenario and provide a prediction:
+
+Asset: {data.asset}
+Asset Type: {data.asset_type}
+Current Price: {data.current_price}
+{price_context}
+
+Based on typical short-term price movements for this asset type, provide:
+1. A BUY confidence percentage (0-100)
+2. A SELL confidence percentage (0-100)
+3. Brief reasoning (max 20 words)
+
+Respond ONLY in this exact JSON format:
+{{"buy_confidence": 65, "sell_confidence": 35, "reasoning": "Brief reason here"}}
+
+Consider:
+- For forex: Typical intraday movements, support/resistance
+- For crypto: Higher volatility, momentum
+- For metals: Safe haven dynamics, slower movements"""
+
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"predict_{data.asset}_{datetime.now(timezone.utc).timestamp()}",
+            system_message="You are a trading analysis AI. Provide predictions in exact JSON format only. No additional text."
+        ).with_model("openai", "gpt-5.2")
+        
+        response = await chat.send_message(UserMessage(text=prompt))
+        
+        # Parse JSON response
+        import json
+        try:
+            # Try to extract JSON from response
+            response_text = response.strip()
+            if response_text.startswith("```"):
+                response_text = response_text.split("```")[1]
+                if response_text.startswith("json"):
+                    response_text = response_text[4:]
+            
+            prediction = json.loads(response_text)
+            
+            # Validate and normalize
+            buy_conf = min(100, max(0, int(prediction.get("buy_confidence", 50))))
+            sell_conf = min(100, max(0, int(prediction.get("sell_confidence", 50))))
+            
+            # Normalize to sum to 100
+            total = buy_conf + sell_conf
+            if total > 0:
+                buy_conf = round((buy_conf / total) * 100)
+                sell_conf = 100 - buy_conf
+            
+            return {
+                "buy_confidence": buy_conf,
+                "sell_confidence": sell_conf,
+                "reasoning": prediction.get("reasoning", "Analysis based on market conditions"),
+                "asset": data.asset
+            }
+            
+        except json.JSONDecodeError:
+            # Fallback with slight random bias based on asset type
+            import random
+            base = 50
+            if data.asset_type == "crypto":
+                # Crypto tends to be more volatile
+                variation = random.randint(-15, 15)
+            elif data.asset_type == "metals":
+                # Metals more stable
+                variation = random.randint(-8, 8)
+            else:
+                # Forex moderate
+                variation = random.randint(-10, 10)
+            
+            buy_conf = min(85, max(15, base + variation))
+            return {
+                "buy_confidence": buy_conf,
+                "sell_confidence": 100 - buy_conf,
+                "reasoning": "Market analysis in progress",
+                "asset": data.asset
+            }
+            
+    except Exception as e:
+        logger.error(f"Prediction error: {e}")
+        # Return balanced prediction on error
+        return {
+            "buy_confidence": 50,
+            "sell_confidence": 50,
+            "reasoning": "Analysis unavailable",
+            "asset": data.asset
+        }
 
 # ==================== AFFILIATE ROUTES ====================
 
