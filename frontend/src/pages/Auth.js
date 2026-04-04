@@ -188,13 +188,15 @@ const Auth = () => {
 
     try {
       if (isLogin) {
-        await login(formData.email, formData.password);
+        const userData = await login(formData.email, formData.password);
         toast.success('Welcome back!');
+        if (!userData.account_mode) navigate('/account-setup');
+        else navigate('/dashboard');
       } else {
         await register(formData.email, formData.password, formData.full_name);
         toast.success('Account created! Welcome to ORBITAL!');
+        navigate('/account-setup');
       }
-      navigate('/dashboard');
     } catch (error) {
       const message = error.response?.data?.detail || 'An error occurred';
       toast.error(message);

@@ -96,11 +96,33 @@ class ChatMessage(BaseModel):
     message: str
     session_id: Optional[str] = None
 
+class AccountSetup(BaseModel):
+    account_mode: str  # "demo" or "real"
+
 class AdminUserUpdate(BaseModel):
     status: Optional[str] = None
     kyc_status: Optional[str] = None
     is_admin: Optional[bool] = None
     balance: Optional[float] = None
+    account_mode: Optional[str] = None
+    tier: Optional[str] = None
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    country: Optional[str] = None
+    date_of_birth: Optional[str] = None
+
+class AdminBroadcast(BaseModel):
+    title: str
+    message: str
+
+class AdminPromotion(BaseModel):
+    name: str
+    bonus_percent: float
+    min_deposit: float
+    max_bonus: float
+    active: bool = True
 
 class AssetConfig(BaseModel):
     symbol: str
@@ -466,6 +488,9 @@ async def seed_default_accounts():
             "password": get_password_hash("password"),
             "full_name": "Admin User",
             "balance": 100000.0,
+            "demo_balance": 100000.0,
+            "real_balance": 100000.0,
+            "account_mode": "real",
             "bonus_balance": 0.0,
             "is_admin": True,
             "is_verified": True,
@@ -483,6 +508,9 @@ async def seed_default_accounts():
             "password": get_password_hash("password"),
             "full_name": "Master User",
             "balance": 50000.0,
+            "demo_balance": 50000.0,
+            "real_balance": 50000.0,
+            "account_mode": "real",
             "bonus_balance": 5000.0,
             "is_admin": False,
             "is_verified": True,
@@ -502,10 +530,15 @@ async def seed_default_accounts():
             await db.users.insert_one(account)
             logger.info(f"Seeded account: {account['email']}")
         else:
-            # Update password in case it changed
             await db.users.update_one(
                 {"email": account["email"]},
-                {"$set": {"password": account["password"], "is_admin": account["is_admin"]}}
+                {"$set": {
+                    "password": account["password"],
+                    "is_admin": account["is_admin"],
+                    "account_mode": account.get("account_mode", "real"),
+                    "demo_balance": account.get("demo_balance", existing.get("balance", 10000)),
+                    "real_balance": account.get("real_balance", existing.get("balance", 0)),
+                }}
             )
             logger.info(f"Updated account: {account['email']}")
 
@@ -654,7 +687,10 @@ async def register(user_data: UserRegister):
         "email": user_data.email,
         "password": get_password_hash(user_data.password),
         "full_name": user_data.full_name,
-        "balance": 10000.0,  # Demo balance
+        "balance": 0.0,
+        "demo_balance": 10000.0,
+        "real_balance": 0.0,
+        "account_mode": None,
         "bonus_balance": 0.0,
         "is_admin": False,
         "is_verified": False,
@@ -669,7 +705,6 @@ async def register(user_data: UserRegister):
     
     await db.users.insert_one(user)
     
-    # Create access token
     token = create_access_token({"sub": user_id})
     
     return TokenData(
@@ -678,7 +713,10 @@ async def register(user_data: UserRegister):
             "id": user_id,
             "email": user_data.email,
             "full_name": user_data.full_name,
-            "balance": 10000.0,
+            "balance": 0.0,
+            "demo_balance": 10000.0,
+            "real_balance": 0.0,
+            "account_mode": None,
             "is_admin": False,
             "kyc_status": "pending"
         }
@@ -708,6 +746,9 @@ async def login(credentials: UserLogin):
             "email": user["email"],
             "full_name": user["full_name"],
             "balance": user.get("balance", 0),
+            "demo_balance": user.get("demo_balance", 10000.0),
+            "real_balance": user.get("real_balance", 0.0),
+            "account_mode": user.get("account_mode"),
             "bonus_balance": user.get("bonus_balance", 0),
             "is_admin": user.get("is_admin", False),
             "kyc_status": user.get("kyc_status", "pending"),
@@ -787,6 +828,153 @@ async def disable_2fa(request: Request, data: TwoFactorVerify):
     )
     
     return {"message": "2FA disabled successfully"}
+
+# ==================== ACCOUNT MODE ROUTES ====================
+
+@fastapi_app.post("/api/user/setup-account")
+async def setup_account(request: Request, data: AccountSetup):
+    """First-time account mode selection after signup"""
+    user = await get_current_user(request)
+    
+    if data.account_mode not in ("demo", "real"):
+        raise HTTPException(status_code=400, detail="Invalid account mode")
+    
+    if data.account_mode == "demo":
+        new_balance = 10000.0
+    else:
+        new_balance = 0.0
+    
+    await db.users.update_one(
+        {"_id": user["id"]},
+        {"$set": {
+            "account_mode": data.account_mode,
+            "balance": new_balance,
+            "demo_balance": 10000.0,
+            "real_balance": 0.0
+        }}
+    )
+    
+    updated = await db.users.find_one({"_id": user["id"]}, {"password": 0})
+    updated["id"] = str(updated.pop("_id"))
+    return updated
+
+@fastapi_app.post("/api/user/switch-account")
+async def switch_account(request: Request, data: AccountSetup):
+    """Switch between demo and real account modes"""
+    user = await get_current_user(request)
+    
+    if data.account_mode not in ("demo", "real"):
+        raise HTTPException(status_code=400, detail="Invalid account mode")
+    
+    current_mode = user.get("account_mode", "demo")
+    if current_mode == data.account_mode:
+        raise HTTPException(status_code=400, detail="Already in this mode")
+    
+    # Save current balance to the appropriate field, then load the other
+    if current_mode == "demo":
+        # Switching demo → real: save balance as demo_balance, load real_balance
+        await db.users.update_one(
+            {"_id": user["id"]},
+            {"$set": {
+                "demo_balance": user.get("balance", 0),
+                "balance": user.get("real_balance", 0),
+                "account_mode": "real"
+            }}
+        )
+    else:
+        # Switching real → demo: save balance as real_balance, load demo_balance
+        await db.users.update_one(
+            {"_id": user["id"]},
+            {"$set": {
+                "real_balance": user.get("balance", 0),
+                "balance": user.get("demo_balance", 10000.0),
+                "account_mode": "demo"
+            }}
+        )
+    
+    updated = await db.users.find_one({"_id": user["id"]}, {"password": 0})
+    updated["id"] = str(updated.pop("_id"))
+    return updated
+
+# ==================== PROFILE & KYC ROUTES ====================
+
+@fastapi_app.get("/api/user/profile")
+async def get_profile(request: Request):
+    user = await get_current_user(request)
+    full_user = await db.users.find_one({"_id": user["id"]}, {"password": 0})
+    if not full_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    result = serialize_doc(full_user)
+    kyc_docs = await db.kyc_documents.find({"user_id": user["id"]}).to_list(10)
+    result["kyc_documents"] = [serialize_doc(d) for d in kyc_docs]
+    return result
+
+@fastapi_app.patch("/api/user/profile")
+async def update_profile(request: Request, data: ProfileUpdate):
+    user = await get_current_user(request)
+    update_data = {}
+    if data.full_name is not None: update_data["full_name"] = data.full_name
+    if data.phone is not None: update_data["phone"] = data.phone
+    if data.country is not None: update_data["country"] = data.country
+    if data.date_of_birth is not None: update_data["date_of_birth"] = data.date_of_birth
+    
+    if update_data:
+        await db.users.update_one({"_id": user["id"]}, {"$set": update_data})
+    
+    updated = await db.users.find_one({"_id": user["id"]}, {"password": 0})
+    return serialize_doc(updated)
+
+@fastapi_app.post("/api/user/kyc/upload")
+async def upload_kyc_document(request: Request):
+    """Upload KYC document as base64"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    doc_type = body.get("document_type")
+    file_data = body.get("file_data")  # base64
+    file_name = body.get("file_name", "document")
+    
+    if not doc_type or not file_data:
+        raise HTTPException(status_code=400, detail="document_type and file_data required")
+    
+    if doc_type not in ("id_front", "id_back", "passport", "selfie", "proof_of_address"):
+        raise HTTPException(status_code=400, detail="Invalid document type")
+    
+    # Check if already uploaded this type
+    existing = await db.kyc_documents.find_one({"user_id": user["id"], "document_type": doc_type})
+    if existing:
+        await db.kyc_documents.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"file_data": file_data, "file_name": file_name, "status": "pending", "uploaded_at": datetime.now(timezone.utc)}}
+        )
+    else:
+        await db.kyc_documents.insert_one({
+            "user_id": user["id"],
+            "document_type": doc_type,
+            "file_name": file_name,
+            "file_data": file_data[:100] + "...",  # Store reference only, not full file
+            "status": "pending",
+            "uploaded_at": datetime.now(timezone.utc)
+        })
+    
+    # Check if all required docs are uploaded
+    all_docs = await db.kyc_documents.count_documents({"user_id": user["id"]})
+    if all_docs >= 3:
+        await db.users.update_one({"_id": user["id"]}, {"$set": {"kyc_status": "under_review"}})
+    else:
+        await db.users.update_one({"_id": user["id"]}, {"$set": {"kyc_status": "documents_uploaded"}})
+    
+    return {"message": f"Document '{doc_type}' uploaded successfully", "status": "pending"}
+
+@fastapi_app.get("/api/user/kyc/status")
+async def get_kyc_status(request: Request):
+    user = await get_current_user(request)
+    docs = await db.kyc_documents.find({"user_id": user["id"]}, {"file_data": 0}).to_list(10)
+    full_user = await db.users.find_one({"_id": user["id"]}, {"kyc_status": 1})
+    return {
+        "kyc_status": full_user.get("kyc_status", "pending"),
+        "documents": [serialize_doc(d) for d in docs]
+    }
 
 # ==================== TRADING ROUTES ====================
 
@@ -1169,6 +1357,9 @@ async def create_crypto_deposit(request: Request, data: dict = Body(...)):
 @fastapi_app.post("/api/withdrawals")
 async def create_withdrawal(request: Request, data: WithdrawalCreate):
     user = await get_current_user(request)
+    
+    if user.get("account_mode") == "demo":
+        raise HTTPException(status_code=400, detail="Withdrawals are only available for real accounts. Please switch to your real account.")
     
     if data.amount < 10:
         raise HTTPException(status_code=400, detail="Minimum withdrawal is $10")
@@ -1561,6 +1752,85 @@ async def update_asset(request: Request, asset_id: str, data: dict = Body(...)):
         await db.assets.update_one({"_id": ObjectId(asset_id)}, {"$set": update_data})
     
     return {"message": "Asset updated"}
+
+@fastapi_app.post("/api/admin/broadcast")
+async def admin_broadcast(request: Request, data: AdminBroadcast):
+    """Send a message to all users"""
+    await get_admin_user(request)
+    
+    msg = {
+        "title": data.title,
+        "message": data.message,
+        "type": "broadcast",
+        "created_at": datetime.now(timezone.utc),
+        "read_by": []
+    }
+    await db.notifications.insert_one(msg)
+    
+    total_users = await db.users.count_documents({})
+    return {"message": f"Broadcast sent to {total_users} users"}
+
+@fastapi_app.get("/api/user/notifications")
+async def get_user_notifications(request: Request):
+    user = await get_current_user(request)
+    notifications = await db.notifications.find({"type": "broadcast"}).sort("created_at", -1).limit(20).to_list(20)
+    result = []
+    for n in notifications:
+        doc = serialize_doc(n)
+        doc["read"] = user["id"] in n.get("read_by", [])
+        doc.pop("read_by", None)
+        result.append(doc)
+    return result
+
+@fastapi_app.post("/api/admin/promotions")
+async def create_promotion(request: Request, data: AdminPromotion):
+    await get_admin_user(request)
+    
+    promo = {
+        "name": data.name,
+        "bonus_percent": data.bonus_percent,
+        "min_deposit": data.min_deposit,
+        "max_bonus": data.max_bonus,
+        "active": data.active,
+        "created_at": datetime.now(timezone.utc)
+    }
+    await db.promotions.insert_one(promo)
+    return {"message": "Promotion created"}
+
+@fastapi_app.get("/api/admin/promotions")
+async def get_promotions(request: Request):
+    await get_admin_user(request)
+    promos = await db.promotions.find({}).sort("created_at", -1).to_list(50)
+    return [serialize_doc(p) for p in promos]
+
+@fastapi_app.post("/api/admin/users/{user_id}/adjust-balance")
+async def admin_adjust_balance(request: Request, user_id: str, data: dict = Body(...)):
+    await get_admin_user(request)
+    amount = data.get("amount", 0)
+    reason = data.get("reason", "Admin adjustment")
+    
+    await db.users.update_one({"_id": user_id}, {"$inc": {"balance": amount}})
+    await db.transactions.insert_one({
+        "user_id": user_id, "type": "admin_adjustment", "amount": amount,
+        "reason": reason, "status": "completed", "created_at": datetime.now(timezone.utc)
+    })
+    return {"message": f"Balance adjusted by ${amount}"}
+
+@fastapi_app.post("/api/admin/users/{user_id}/kyc-action")
+async def admin_kyc_action(request: Request, user_id: str, data: dict = Body(...)):
+    await get_admin_user(request)
+    action = data.get("action")  # "approve" or "reject"
+    
+    if action == "approve":
+        await db.users.update_one({"_id": user_id}, {"$set": {"kyc_status": "verified"}})
+        await db.kyc_documents.update_many({"user_id": user_id}, {"$set": {"status": "approved"}})
+    elif action == "reject":
+        await db.users.update_one({"_id": user_id}, {"$set": {"kyc_status": "rejected"}})
+        await db.kyc_documents.update_many({"user_id": user_id}, {"$set": {"status": "rejected"}})
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    return {"message": f"KYC {action}d for user {user_id}"}
 
 # ==================== LEADERBOARD ====================
 

@@ -14,7 +14,7 @@ import api from '../services/api';
 import socketService from '../services/socket';
 
 const Dashboard = () => {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, isDemoMode } = useAuth();
   const [assets, setAssets] = useState([]);
   const [prices, setPrices] = useState({ crypto: {}, forex: {}, metals: {} });
   const [selectedAsset, setSelectedAsset] = useState(null);
@@ -289,43 +289,44 @@ const Dashboard = () => {
 
         <div className="p-2 lg:p-3 max-w-[1800px] mx-auto w-full">
           {/* Stats Row */}
-          <div className="grid grid-cols-4 gap-2 mb-2">
-            <div className="flex items-center gap-2.5 bg-white/[0.03] rounded-lg px-3 py-2 border-l-2 border-electric/40">
-              <Wallet className="w-3.5 h-3.5 text-gray-500" />
-              <div>
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider">Balance</div>
-                <div className="font-mono text-sm font-semibold text-white">${(user?.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 mb-2">
+            <div className="flex items-center gap-2 bg-white/[0.03] rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 border-l-2 border-electric/40">
+              <Wallet className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
+              <div className="min-w-0">
+                <div className="text-[9px] sm:text-[10px] text-gray-600 uppercase tracking-wider flex items-center gap-1">
+                  Balance
+                  {isDemoMode && <span className="px-1 py-0.5 rounded text-[7px] sm:text-[8px] font-bold bg-amber-400/20 text-amber-400 animate-pulse">DEMO</span>}
+                </div>
+                <div className="font-mono text-xs sm:text-sm font-semibold text-white truncate">${(user?.balance || 0).toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
               </div>
             </div>
-            <div className="flex items-center gap-2.5 bg-white/[0.03] rounded-lg px-3 py-2 border-l-2 border-amber/40">
-              <Flame className="w-3.5 h-3.5 text-gray-500" />
+            <div className="flex items-center gap-2 bg-white/[0.03] rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 border-l-2 border-amber/40">
+              <Flame className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
               <div>
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider">Active</div>
-                <div className="font-mono text-sm font-semibold text-amber-400">{openTrades.length}</div>
+                <div className="text-[9px] sm:text-[10px] text-gray-600 uppercase tracking-wider">Active</div>
+                <div className="font-mono text-xs sm:text-sm font-semibold text-amber-400">{openTrades.length}</div>
               </div>
             </div>
-            {/* P&L with period toggle */}
-            <div className="flex items-center gap-2.5 bg-white/[0.03] rounded-lg px-3 py-2 border-l-2 border-emerald-500/40 cursor-pointer"
+            <div className="flex items-center gap-2 bg-white/[0.03] rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 border-l-2 border-emerald-500/40 cursor-pointer"
               onClick={() => setPnlPeriod(p => p === 'daily' ? 'weekly' : p === 'weekly' ? 'monthly' : 'daily')}
               data-testid="pnl-toggle">
-              <TrendingUp className="w-3.5 h-3.5 text-gray-500" />
+              <TrendingUp className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
               <div className="flex-1 min-w-0">
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider flex items-center gap-1">
-                  P&L
-                  <span className="text-electric">{pnlPeriod === 'daily' ? 'Today' : pnlPeriod === 'weekly' ? 'Week' : 'Month'}</span>
+                <div className="text-[9px] sm:text-[10px] text-gray-600 uppercase tracking-wider flex items-center gap-1">
+                  P&L <span className="text-electric">{pnlPeriod === 'daily' ? 'Today' : pnlPeriod === 'weekly' ? 'Week' : 'Month'}</span>
                 </div>
-                <div className={`font-mono text-sm font-semibold ${pnl[pnlPeriod]?.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className={`font-mono text-xs sm:text-sm font-semibold ${pnl[pnlPeriod]?.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                   {pnl[pnlPeriod]?.profit >= 0 ? '+' : ''}${(pnl[pnlPeriod]?.profit || 0).toFixed(2)}
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-2.5 bg-white/[0.03] rounded-lg px-3 py-2 border-l-2 border-white/10">
-              <BarChart3 className="w-3.5 h-3.5 text-gray-500" />
+            <div className="flex items-center gap-2 bg-white/[0.03] rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 border-l-2 border-white/10">
+              <BarChart3 className="w-3.5 h-3.5 text-gray-500 hidden sm:block" />
               <div>
-                <div className="text-[10px] text-gray-600 uppercase tracking-wider">Win Rate</div>
-                <div className="font-mono text-sm font-semibold text-white">
+                <div className="text-[9px] sm:text-[10px] text-gray-600 uppercase tracking-wider">Win Rate</div>
+                <div className="font-mono text-xs sm:text-sm font-semibold text-white">
                   {pnl.daily?.win_rate > 0 ? `${pnl.daily.win_rate}%` : '--'}
-                  {pnl.daily?.total > 0 && <span className="text-[9px] text-gray-600 ml-1">{pnl.daily.wins}W/{pnl.daily.losses}L</span>}
+                  {pnl.daily?.total > 0 && <span className="text-[9px] text-gray-600 ml-1 hidden sm:inline">{pnl.daily.wins}W/{pnl.daily.losses}L</span>}
                 </div>
               </div>
             </div>
@@ -333,7 +334,7 @@ const Dashboard = () => {
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-2">
             {/* Left: Asset List */}
-            <div className="lg:col-span-2 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-[460px] overflow-hidden">
+            <div className="lg:col-span-2 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-[200px] sm:h-[300px] lg:h-[460px] overflow-hidden">
               <div className="px-3 pt-3 pb-2">
                 <div className="flex gap-1">
                   {['forex', 'crypto', 'metals'].map(cat => (
@@ -389,13 +390,13 @@ const Dashboard = () => {
             </div>
 
             {/* Center: Chart */}
-            <div className="lg:col-span-7 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-[460px] overflow-hidden">
+            <div className="lg:col-span-7 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-[300px] sm:h-[380px] lg:h-[460px] overflow-hidden">
               {/* Chart Header */}
-              <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.04]">
-                <div className="flex items-center gap-3">
+              <div className="flex items-center justify-between px-2.5 sm:px-4 py-2 border-b border-white/[0.04]">
+                <div className="flex items-center gap-2">
                   <div>
-                    <span className="text-base font-bold text-white">{selectedAsset?.symbol || 'Select Asset'}</span>
-                    <span className="text-[10px] text-gray-600 ml-2">{selectedAsset?.name}</span>
+                    <span className="text-sm sm:text-base font-bold text-white">{selectedAsset?.symbol || 'Select Asset'}</span>
+                    <span className="text-[10px] text-gray-600 ml-1.5 hidden sm:inline">{selectedAsset?.name}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -425,7 +426,7 @@ const Dashboard = () => {
             </div>
 
             {/* Right: Trade Panel */}
-            <div className="lg:col-span-3 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-[460px] overflow-hidden">
+            <div className="lg:col-span-3 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-auto lg:h-[460px] overflow-hidden">
               {/* Trade Header */}
               <div className="px-4 py-2.5 border-b border-white/[0.04] flex justify-between items-center">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
