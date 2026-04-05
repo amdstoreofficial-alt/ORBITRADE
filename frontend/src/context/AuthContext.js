@@ -43,8 +43,10 @@ export const AuthProvider = ({ children }) => {
     return userData;
   };
 
-  const register = async (email, password, full_name) => {
-    const response = await api.post('/api/auth/register', { email, password, full_name });
+  const register = async (email, password, full_name, referral_code = null) => {
+    const payload = { email, password, full_name };
+    if (referral_code) payload.referral_code = referral_code;
+    const response = await api.post('/api/auth/register', payload);
     const { access_token, user: userData } = response.data;
     localStorage.setItem('orbital_token', access_token);
     api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;

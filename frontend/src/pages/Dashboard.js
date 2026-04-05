@@ -27,6 +27,8 @@ const Dashboard = () => {
   const [tradeAmount, setTradeAmount] = useState(100);
   const [expiryTime, setExpiryTime] = useState(30);
   const [submitting, setSubmitting] = useState(false);
+  const [tradeType, setTradeType] = useState('standard'); // 'standard', 'touch', 'no_touch'
+  const [targetPrice, setTargetPrice] = useState(null);
   
   const [prediction, setPrediction] = useState({ buy_confidence: 50, sell_confidence: 50, reasoning: '' });
   const [predictionLoading, setPredictionLoading] = useState(false);
@@ -183,13 +185,31 @@ const Dashboard = () => {
     if (!selectedAsset) { toast.error('Please select an asset'); return; }
     if (tradeAmount < 1) { toast.error('Minimum trade amount is $1'); return; }
     if (tradeAmount > (user?.balance || 0)) { toast.error('Insufficient balance'); return; }
+    
+    // Validate Touch/No Touch trades
+    if ((direction === 'touch' || direction === 'no_touch') && !targetPrice) {
+      toast.error('Please set a target price');
+      return;
+    }
+    
     setSubmitting(true);
     try {
-      await api.post('/api/trades', {
-        asset: selectedAsset.symbol, direction,
-        amount: tradeAmount, expiry_seconds: expiryTime
-      });
-      toast.success(`${direction.toUpperCase()} position opened on ${selectedAsset.symbol}!`);
+      const payload = {
+        asset: selectedAsset.symbol, 
+        direction,
+        amount: tradeAmount, 
+        expiry_seconds: expiryTime,
+        trade_type: tradeType
+      };
+      
+      // Add target price for Touch/No Touch
+      if (direction === 'touch' || direction === 'no_touch') {
+        payload.target_price = targetPrice;
+      }
+      
+      await api.post('/api/trades', payload);
+      const tradeTypeLabel = direction === 'touch' ? 'TOUCH' : direction === 'no_touch' ? 'NO TOUCH' : direction.toUpperCase();
+      toast.success(`${tradeTypeLabel} position opened on ${selectedAsset.symbol}!`);
       await refreshUser();
       await fetchTrades();
     } catch (error) {
@@ -426,7 +446,7 @@ const Dashboard = () => {
             </div>
 
             {/* Right: Trade Panel */}
-            <div className="lg:col-span-3 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-auto lg:h-[460px] overflow-hidden">
+            <div className="lg:col-span-3 bg-white/[0.02] rounded-xl border border-white/[0.04] flex flex-col h-auto lg:h-[520px] overflow-hidden">
               {/* Trade Header */}
               <div className="px-4 py-2.5 border-b border-white/[0.04] flex justify-between items-center">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -437,8 +457,36 @@ const Dashboard = () => {
                 </span>
               </div>
 
+              {/* Trade Type Selector */}
+              <div className="px-4 pt-3 pb-2">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5 block">Trade Type</span>
+                <div className="flex gap-1 p-0.5 bg-black/20 rounded-lg">
+                  <button
+                    className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${
+                      tradeType === 'standard' ? 'bg-electric text-white' : 'text-gray-500 hover:text-white'
+                    }`}
+                    onClick={() => setTradeType('standard')}
+                    data-testid="trade-type-standard"
+                  >High/Low</button>
+                  <button
+                    className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${
+                      tradeType === 'touch' ? 'bg-amber-500 text-white' : 'text-gray-500 hover:text-white'
+                    }`}
+                    onClick={() => setTradeType('touch')}
+                    data-testid="trade-type-touch"
+                  >Touch</button>
+                  <button
+                    className={`flex-1 py-1.5 rounded-md text-[10px] font-bold transition-all ${
+                      tradeType === 'no_touch' ? 'bg-cyan-500 text-white' : 'text-gray-500 hover:text-white'
+                    }`}
+                    onClick={() => setTradeType('no_touch')}
+                    data-testid="trade-type-notouch"
+                  >No Touch</button>
+                </div>
+              </div>
+
               {/* Amount */}
-              <div className="px-4 pt-3 pb-2 space-y-2">
+              <div className="px-4 pb-2 space-y-2">
                 <div className="bg-black/20 rounded-lg p-2.5 border border-white/[0.04]">
                   <div className="flex justify-between items-center mb-1.5">
                     <span className="text-[10px] text-gray-500 uppercase tracking-wider">Amount</span>
@@ -474,6 +522,31 @@ const Dashboard = () => {
                   ))}
                 </div>
 
+                {/* Target Price for Touch/No Touch */}
+                {(tradeType === 'touch' || tradeType === 'no_touch') && (
+                  <div className="bg-black/20 rounded-lg p-2.5 border border-white/[0.04]">
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-[10px] text-gray-500 uppercase tracking-wider">Target Price</span>
+                      <span className="text-[10px] text-gray-600">Current: {formatPrice(currentPriceVal, selectedAsset?.asset_type)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="flex-1 py-1.5 rounded-md text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20"
+                        onClick={() => setTargetPrice(currentPriceVal * 1.002)}
+                        data-testid="target-above">
+                        Above (+0.2%)
+                      </button>
+                      <button className="flex-1 py-1.5 rounded-md text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20"
+                        onClick={() => setTargetPrice(currentPriceVal * 0.998)}
+                        data-testid="target-below">
+                        Below (-0.2%)
+                      </button>
+                    </div>
+                    <input type="number" value={targetPrice || ''} onChange={(e) => setTargetPrice(parseFloat(e.target.value) || 0)}
+                      className="w-full mt-2 bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm font-mono text-white focus:outline-none text-center"
+                      placeholder="Enter target price" step="0.00001" data-testid="target-price-input" />
+                  </div>
+                )}
+
                 {/* Duration */}
                 <div>
                   <span className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Duration</span>
@@ -498,57 +571,65 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* AI Signal */}
-              <div className="px-4 py-2 border-t border-white/[0.04]">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Sparkles className="w-3 h-3 text-amber-400" />
-                  <span className="text-[10px] text-gray-500 uppercase tracking-wider">AI Signal</span>
-                  {predictionLoading && <div className="w-2.5 h-2.5 border border-amber-400 border-t-transparent rounded-full animate-spin"></div>}
-                </div>
-                {prediction.reasoning && (
-                  <p className="text-[9px] text-gray-600 leading-relaxed line-clamp-2">{prediction.reasoning}</p>
+              {/* Trade Buttons */}
+              <div className="px-4 pb-3 mt-auto">
+                {tradeType === 'standard' ? (
+                  <div className="flex gap-2">
+                    <motion.button
+                      className="flex-1 relative overflow-hidden rounded-xl py-3 group transition-all disabled:opacity-40"
+                      style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%)', border: '1px solid rgba(16,185,129,0.25)' }}
+                      onClick={() => placeTrade('buy')}
+                      disabled={submitting || !selectedAsset}
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      data-testid="buy-btn"
+                    >
+                      <div className="relative z-10 flex flex-col items-center">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <ArrowUp className="w-4 h-4 text-emerald-400" />
+                          <span className="font-bold text-emerald-400 text-sm">BUY</span>
+                        </div>
+                        <span className="font-mono text-xl font-black text-emerald-300">{prediction.buy_confidence}%</span>
+                      </div>
+                    </motion.button>
+                    <motion.button
+                      className="flex-1 relative overflow-hidden rounded-xl py-3 group transition-all disabled:opacity-40"
+                      style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.05) 100%)', border: '1px solid rgba(239,68,68,0.25)' }}
+                      onClick={() => placeTrade('sell')}
+                      disabled={submitting || !selectedAsset}
+                      whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                      data-testid="sell-btn"
+                    >
+                      <div className="relative z-10 flex flex-col items-center">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <ArrowDown className="w-4 h-4 text-red-400" />
+                          <span className="font-bold text-red-400 text-sm">SELL</span>
+                        </div>
+                        <span className="font-mono text-xl font-black text-red-300">{prediction.sell_confidence}%</span>
+                      </div>
+                    </motion.button>
+                  </div>
+                ) : (
+                  <motion.button
+                    className={`w-full relative overflow-hidden rounded-xl py-4 group transition-all disabled:opacity-40 ${
+                      tradeType === 'touch' 
+                        ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30'
+                        : 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 border border-cyan-500/30'
+                    }`}
+                    onClick={() => placeTrade(tradeType)}
+                    disabled={submitting || !selectedAsset || !targetPrice}
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    data-testid={`${tradeType}-btn`}
+                  >
+                    <div className="relative z-10 flex flex-col items-center">
+                      <span className={`font-bold text-sm mb-1 ${tradeType === 'touch' ? 'text-amber-400' : 'text-cyan-400'}`}>
+                        {tradeType === 'touch' ? 'TOUCH' : 'NO TOUCH'} @ {targetPrice?.toFixed(5)}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {tradeType === 'touch' ? 'Win if price touches target' : 'Win if price never touches target'}
+                      </span>
+                    </div>
+                  </motion.button>
                 )}
-              </div>
-
-              {/* BUY / SELL Buttons - Side by Side */}
-              <div className="px-4 pb-3 mt-auto flex gap-2">
-                <motion.button
-                  className="flex-1 relative overflow-hidden rounded-xl py-3 group transition-all disabled:opacity-40"
-                  style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%)', border: '1px solid rgba(16,185,129,0.25)' }}
-                  onClick={() => placeTrade('buy')}
-                  disabled={submitting || !selectedAsset}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(16,185,129,0.6)' }}
-                  whileTap={{ scale: 0.97 }}
-                  data-testid="buy-btn"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-t from-emerald-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <ArrowUp className="w-4 h-4 text-emerald-400" />
-                      <span className="font-bold text-emerald-400 text-sm">BUY</span>
-                    </div>
-                    <span className="font-mono text-2xl font-black text-emerald-300">{prediction.buy_confidence}%</span>
-                  </div>
-                </motion.button>
-
-                <motion.button
-                  className="flex-1 relative overflow-hidden rounded-xl py-3 group transition-all disabled:opacity-40"
-                  style={{ background: 'linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.05) 100%)', border: '1px solid rgba(239,68,68,0.25)' }}
-                  onClick={() => placeTrade('sell')}
-                  disabled={submitting || !selectedAsset}
-                  whileHover={{ scale: 1.02, borderColor: 'rgba(239,68,68,0.6)' }}
-                  whileTap={{ scale: 0.97 }}
-                  data-testid="sell-btn"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-t from-red-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                  <div className="relative z-10 flex flex-col items-center">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      <ArrowDown className="w-4 h-4 text-red-400" />
-                      <span className="font-bold text-red-400 text-sm">SELL</span>
-                    </div>
-                    <span className="font-mono text-2xl font-black text-red-300">{prediction.sell_confidence}%</span>
-                  </div>
-                </motion.button>
               </div>
             </div>
 

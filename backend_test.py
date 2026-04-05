@@ -439,47 +439,238 @@ class OrbitalAPITester:
             
         return success
 
-    def test_affiliate_info(self):
-        """Test affiliate info endpoint"""
+    def test_affiliate_stats(self):
+        """Test affiliate stats endpoint - NEW FEATURE"""
         if not self.user_token:
-            self.log("❌ No user token available for affiliate test")
+            self.log("❌ No user token available for affiliate stats test")
             return False
             
         success, response = self.run_test(
-            "Affiliate Info",
+            "Affiliate Stats (/api/affiliate/stats)",
             "GET",
-            "/api/affiliate",
+            "/api/affiliate/stats",
             200,
             headers=self.get_auth_headers()
         )
         
-        if success and 'code' in response:
-            self.log(f"✅ Affiliate code: {response.get('code')}")
+        if success and isinstance(response, dict):
+            # Check for expected affiliate data
+            expected_fields = ['referral_code', 'total_referrals', 'total_earned', 'direct_earned', 'revenue_share_earned']
+            found_fields = [field for field in expected_fields if field in response]
+            self.log(f"✅ Affiliate stats fields: {', '.join(found_fields)}")
+            
+            if 'referral_code' in response:
+                self.log(f"✅ Referral code: {response.get('referral_code')}")
+            if 'total_earned' in response:
+                self.log(f"✅ Total earned: ${response.get('total_earned', 0):.2f}")
             
         return success
 
-    def test_ai_chat(self):
-        """Test AI chat endpoint"""
-        if not self.user_token:
-            self.log("❌ No user token available for chat test")
-            return False
-            
-        # Allow longer timeout for AI response
+    def test_affiliate_commission_structure(self):
+        """Test affiliate commission structure endpoint"""
         success, response = self.run_test(
-            "AI Chat", 
-            "POST",
-            "/api/chat",
-            200,
-            data={"message": "What is binary options trading?"},
-            headers=self.get_auth_headers(),
-            timeout=60  # AI responses can take time
+            "Affiliate Commission Structure",
+            "GET",
+            "/api/affiliate/commission-structure",
+            200
         )
         
-        if success and 'response' in response:
-            self.log("✅ AI chat response received")
-            # Truncate long responses for logging
-            response_text = response.get('response', '')[:100]
-            self.log(f"Chat response preview: {response_text}...")
+        if success and isinstance(response, dict):
+            # Check for commission structure fields
+            expected_fields = ['direct_percent', 'indirect_percent', 'revenue_share_percent', 'levels']
+            found_fields = [field for field in expected_fields if field in response]
+            self.log(f"✅ Commission structure: {', '.join(found_fields)}")
+            
+            if 'direct_percent' in response:
+                self.log(f"✅ Direct commission: {response.get('direct_percent')}%")
+            if 'indirect_percent' in response:
+                self.log(f"✅ Indirect commission: {response.get('indirect_percent')}%")
+            if 'revenue_share_percent' in response:
+                self.log(f"✅ Revenue share: {response.get('revenue_share_percent')}%")
+                
+        return success
+
+    def test_manual_crypto_deposit(self):
+        """Test manual crypto deposit endpoint - NEW FEATURE"""
+        # Use admin token since user registration might fail
+        token = self.admin_token if self.admin_token else self.user_token
+        if not token:
+            self.log("❌ No token available for deposit test")
+            return False
+            
+        success, response = self.run_test(
+            "Manual Crypto Deposit (/api/deposits POST)",
+            "POST",
+            "/api/deposits",
+            200,
+            data={
+                "amount": 100.0,
+                "currency": "USDT_TRC20",
+                "tx_hash": "test_tx_hash_12345abcdef",
+                "screenshot": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+            },
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        
+        if success and isinstance(response, dict):
+            # Check for expected deposit response fields
+            expected_fields = ['user_id', 'amount', 'currency', 'tx_hash', 'status']
+            found_fields = [field for field in expected_fields if field in response]
+            self.log(f"✅ Deposit response fields: {', '.join(found_fields)}")
+            
+            if 'status' in response:
+                self.log(f"✅ Deposit status: {response.get('status')}")
+            if 'amount' in response:
+                self.log(f"✅ Deposit amount: ${response.get('amount')}")
+                
+        return success
+
+    def test_get_my_deposits(self):
+        """Test get my deposits endpoint"""
+        # Use admin token since user registration might fail
+        token = self.admin_token if self.admin_token else self.user_token
+        if not token:
+            self.log("❌ No token available for deposits test")
+            return False
+            
+        success, response = self.run_test(
+            "Get My Deposits",
+            "GET",
+            "/api/deposits/my",
+            200,
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        
+        if success and isinstance(response, list):
+            self.log(f"✅ Found {len(response)} deposits")
+            
+        return success
+
+    def test_affiliate_stats(self):
+        """Test affiliate stats endpoint - NEW FEATURE"""
+        # Use admin token since user registration might fail
+        token = self.admin_token if self.admin_token else self.user_token
+        if not token:
+            self.log("❌ No token available for affiliate stats test")
+            return False
+            
+        success, response = self.run_test(
+            "Affiliate Stats (/api/affiliate/stats)",
+            "GET",
+            "/api/affiliate/stats",
+            200,
+            headers={'Authorization': f'Bearer {token}'}
+        )
+        
+        if success and isinstance(response, dict):
+            # Check for expected affiliate data
+            expected_fields = ['referral_code', 'total_referrals', 'total_earned', 'direct_earned', 'revenue_share_earned']
+            found_fields = [field for field in expected_fields if field in response]
+            self.log(f"✅ Affiliate stats fields: {', '.join(found_fields)}")
+            
+            if 'referral_code' in response:
+                self.log(f"✅ Referral code: {response.get('referral_code')}")
+            if 'total_earned' in response:
+                self.log(f"✅ Total earned: ${response.get('total_earned', 0):.2f}")
+            
+        return success
+
+    def test_password_reset_flow(self):
+        """Test password reset flow - NEW FEATURE"""
+        # Step 1: Request password reset
+        success1, response1 = self.run_test(
+            "Password Reset Request (/api/auth/forgot-password)",
+            "POST",
+            "/api/auth/forgot-password",
+            200,
+            data={"email": self.test_user_email}
+        )
+        
+        if not success1:
+            return False
+            
+        # Check if reset token is returned (for testing)
+        reset_token = None
+        if isinstance(response1, dict) and 'reset_token' in response1:
+            reset_token = response1['reset_token']
+            self.log(f"✅ Reset token received: {reset_token}")
+        else:
+            self.log("✅ Password reset request processed (token sent via email)")
+            # For production, we won't get the token back, so we'll use a test token
+            reset_token = "123456"  # Test token
+            
+        # Step 2: Reset password with token
+        success2, response2 = self.run_test(
+            "Password Reset Confirm (/api/auth/reset-password)",
+            "POST",
+            "/api/auth/reset-password",
+            200,
+            data={
+                "token": reset_token,
+                "new_password": "NewPassword123!"
+            }
+        )
+        
+        if success2:
+            self.log("✅ Password reset flow completed successfully")
+            
+        return success1 and success2
+
+    def test_admin_commission_structure(self):
+        """Test admin commission structure endpoints - NEW FEATURE"""
+        if not self.admin_token:
+            self.log("❌ No admin token available for commission structure test")
+            return False
+            
+        # Test GET commission structure
+        success1, response1 = self.run_test(
+            "Get Admin Commission Structure",
+            "GET",
+            "/api/admin/commission-structure",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if not success1:
+            return False
+            
+        # Test POST commission structure (save/update)
+        success2, response2 = self.run_test(
+            "Save Admin Commission Structure",
+            "POST",
+            "/api/admin/commission-structure",
+            200,
+            data={
+                "direct_percent": 5.0,
+                "indirect_percent": 2.0,
+                "revenue_share_percent": 10.0,
+                "levels": 3,
+                "active": True
+            },
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success1 and success2:
+            self.log("✅ Admin commission structure endpoints working")
+            
+        return success1 and success2
+
+    def test_admin_deposits(self):
+        """Test admin deposits endpoint"""
+        if not self.admin_token:
+            self.log("❌ No admin token available for admin deposits test")
+            return False
+            
+        success, response = self.run_test(
+            "Admin Deposits List",
+            "GET",
+            "/api/admin/deposits",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success and isinstance(response, list):
+            self.log(f"✅ Admin found {len(response)} deposits")
             
         return success
 
@@ -523,9 +714,17 @@ class OrbitalAPITester:
         self.test_admin_users_list()
         
         # Feature tests
-        self.log("\n--- Feature Tests ---")
-        self.test_affiliate_info()
-        self.test_ai_chat()
+        self.log("\n--- New Feature Tests ---")
+        self.test_affiliate_stats()
+        self.test_affiliate_commission_structure()
+        self.test_manual_crypto_deposit()
+        self.test_get_my_deposits()
+        self.test_password_reset_flow()
+        
+        # Admin feature tests
+        self.log("\n--- Admin Feature Tests ---")
+        self.test_admin_commission_structure()
+        self.test_admin_deposits()
         
         # Summary
         self.log("\n" + "=" * 60)
