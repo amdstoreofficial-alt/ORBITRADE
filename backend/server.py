@@ -2521,6 +2521,90 @@ async def create_tournament(request: Request, data: dict = Body(...)):
     result = await db.tournaments.insert_one(tournament)
     return {"id": str(result.inserted_id), "message": "Tournament created"}
 
+@fastapi_app.put("/api/admin/tournaments/{tournament_id}")
+async def update_tournament(request: Request, tournament_id: str, data: dict = Body(...)):
+    await get_admin_user(request)
+    from bson import ObjectId
+    
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    update_fields = {}
+    for field in ["name", "description", "tournament_type", "prize_pool", "prizes", "entry_fee", "status"]:
+        if field in data:
+            update_fields[field] = data[field]
+    
+    if "start_date" in data:
+        update_fields["start_date"] = datetime.fromisoformat(data["start_date"])
+    if "end_date" in data:
+        update_fields["end_date"] = datetime.fromisoformat(data["end_date"])
+    
+    update_fields["updated_at"] = datetime.now(timezone.utc)
+    
+    await db.tournaments.update_one({"_id": ObjectId(tournament_id)}, {"$set": update_fields})
+    return {"message": "Tournament updated"}
+
+@fastapi_app.delete("/api/admin/tournaments/{tournament_id}")
+async def delete_tournament(request: Request, tournament_id: str):
+    await get_admin_user(request)
+    from bson import ObjectId
+    
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    await db.tournaments.delete_one({"_id": ObjectId(tournament_id)})
+    await db.tournament_participants.delete_many({"tournament_id": tournament_id})
+    return {"message": "Tournament deleted"}
+
+# ==================== PAYMENT SETTINGS ====================
+
+@fastapi_app.get("/api/admin/payment-settings")
+async def get_payment_settings(request: Request):
+    await get_admin_user(request)
+    settings = await db.payment_settings.find_one({"active": True})
+    if not settings:
+        return {
+            "deposit_fee_percent": 0,
+            "deposit_fee_fixed": 0,
+            "min_deposit": 10,
+            "max_deposit": 50000,
+            "withdrawal_fee_percent": 2,
+            "withdrawal_fee_fixed": 5,
+            "min_withdrawal": 20,
+            "max_withdrawal": 10000,
+            "withdrawal_processing_time": "24h",
+            "auto_approve_deposits_below": 0,
+            "auto_approve_withdrawals_below": 0,
+        }
+    return serialize_doc(settings)
+
+@fastapi_app.post("/api/admin/payment-settings")
+async def save_payment_settings(request: Request, data: dict = Body(...)):
+    await get_admin_user(request)
+    
+    await db.payment_settings.update_many({}, {"$set": {"active": False}})
+    
+    settings = {
+        "deposit_fee_percent": data.get("deposit_fee_percent", 0),
+        "deposit_fee_fixed": data.get("deposit_fee_fixed", 0),
+        "min_deposit": data.get("min_deposit", 10),
+        "max_deposit": data.get("max_deposit", 50000),
+        "withdrawal_fee_percent": data.get("withdrawal_fee_percent", 2),
+        "withdrawal_fee_fixed": data.get("withdrawal_fee_fixed", 5),
+        "min_withdrawal": data.get("min_withdrawal", 20),
+        "max_withdrawal": data.get("max_withdrawal", 10000),
+        "withdrawal_processing_time": data.get("withdrawal_processing_time", "24h"),
+        "auto_approve_deposits_below": data.get("auto_approve_deposits_below", 0),
+        "auto_approve_withdrawals_below": data.get("auto_approve_withdrawals_below", 0),
+        "active": True,
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.payment_settings.insert_one(settings)
+    return {"message": "Payment settings saved"}
+
 @fastapi_app.post("/api/tournaments/{tournament_id}/join")
 async def join_tournament(request: Request, tournament_id: str):
     user = await get_current_user(request)

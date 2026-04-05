@@ -159,7 +159,7 @@ const Legal = () => {
   const Icon = content.icon;
 
   return (
-    <div className="min-h-screen bg-[#080c14]">
+    <div className="min-h-screen bg-app">
       <Navbar />
       <main className="pt-16 pb-12 px-4 sm:px-6 max-w-4xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>

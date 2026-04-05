@@ -39,7 +39,7 @@ const Affiliate = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-electric border-t-transparent rounded-full" />
       </div>
     );
@@ -47,7 +47,7 @@ const Affiliate = () => {
 
   if (isDemoMode) {
     return (
-      <div className="min-h-screen bg-[#080c14]" data-testid="affiliate-page">
+      <div className="min-h-screen bg-app" data-testid="affiliate-page">
         <Navbar />
         <main className="pt-16 pb-8 px-3 sm:px-6 max-w-4xl mx-auto">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-20 text-center">
@@ -64,7 +64,7 @@ const Affiliate = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#080c14]" data-testid="affiliate-page">
+    <div className="min-h-screen bg-app" data-testid="affiliate-page">
       <Navbar />
       <main className="pt-16 pb-8 px-3 sm:px-6 max-w-6xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-6">

@@ -88,14 +88,14 @@ const Profile = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="w-10 h-10 border-2 border-electric border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#080c14]" data-testid="profile-page">
+    <div className="min-h-screen bg-app" data-testid="profile-page">
       <Navbar />
       <main className="pt-16 pb-8 px-3 sm:px-6 max-w-4xl mx-auto">
         {/* Header */}

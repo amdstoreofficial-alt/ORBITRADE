@@ -82,7 +82,7 @@ const Withdraw = () => {
 
   if (isDemoMode) {
     return (
-      <div className="min-h-screen bg-[#080c14]" data-testid="withdraw-page">
+      <div className="min-h-screen bg-app" data-testid="withdraw-page">
         <Navbar />
         <main className="pt-16 pb-8 px-3 sm:px-6 max-w-4xl mx-auto">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center justify-center py-20 text-center">
@@ -101,7 +101,7 @@ const Withdraw = () => {
   // Submitted state
   if (submitted) {
     return (
-      <div className="min-h-screen bg-[#080c14]" data-testid="withdraw-page">
+      <div className="min-h-screen bg-app" data-testid="withdraw-page">
         <Navbar />
         <main className="pt-16 pb-8 px-3 sm:px-6 max-w-lg mx-auto">
           <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="mt-10">
@@ -173,7 +173,7 @@ const Withdraw = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#080c14]" data-testid="withdraw-page">
+    <div className="min-h-screen bg-app" data-testid="withdraw-page">
       <Navbar />
       <main className="pt-16 pb-8 px-3 sm:px-6 max-w-4xl mx-auto">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-6">

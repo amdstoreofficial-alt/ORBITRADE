@@ -4,7 +4,8 @@ import {
   Users, DollarSign, TrendingUp, Shield, BarChart3, Search, 
   ChevronDown, Check, X, Send, Megaphone, Eye, Edit3,
   UserCheck, UserX, Wallet, AlertCircle, Gift, Settings, Activity,
-  FileText, Image, Layers, PiggyBank, CreditCard, Download, Trophy, Bell, Sliders
+  FileText, Image, Layers, PiggyBank, CreditCard, Download, Trophy, Bell, Sliders,
+  Pause, Play, Trash2, Pencil, Percent, Ban
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -49,6 +50,14 @@ const AdminPanel = () => {
     end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
   });
   const [tournaments, setTournaments] = useState([]);
+  const [editingTournament, setEditingTournament] = useState(null);
+  
+  // Payment settings state
+  const [paymentSettings, setPaymentSettings] = useState({
+    deposit_fee_percent: 0, deposit_fee_fixed: 0, min_deposit: 10, max_deposit: 50000,
+    withdrawal_fee_percent: 2, withdrawal_fee_fixed: 5, min_withdrawal: 20, max_withdrawal: 10000,
+    withdrawal_processing_time: '24h', auto_approve_deposits_below: 0, auto_approve_withdrawals_below: 0
+  });
   
   // User edit state
   const [editingUser, setEditingUser] = useState(null);
@@ -79,16 +88,18 @@ const AdminPanel = () => {
       setDeposits(Array.isArray(depositsRes.data) ? depositsRes.data : []);
       
       try {
-        const [promoRes, commRes, settingsRes, tournamentsRes] = await Promise.all([
+        const [promoRes, commRes, settingsRes, tournamentsRes, paySettingsRes] = await Promise.all([
           api.get('/api/admin/promotions'),
           api.get('/api/admin/commission-structure'),
           api.get('/api/admin/platform-settings'),
-          api.get('/api/tournaments')
+          api.get('/api/tournaments'),
+          api.get('/api/admin/payment-settings')
         ]);
         setPromotions(promoRes.data || []);
         setCommissionStructures(commRes.data || []);
         setPlatformSettings(settingsRes.data || { platform_win_rate: 45 });
         setTournaments(tournamentsRes.data || []);
+        setPaymentSettings(paySettingsRes.data || paymentSettings);
         if (commRes.data?.[0]) {
           setCommissionForm({
             direct_percent: commRes.data[0].direct_percent || 5,
@@ -122,6 +133,31 @@ const AdminPanel = () => {
       toast.success('Tournament created');
       fetchAll();
     } catch (e) { toast.error('Failed to create tournament'); }
+  };
+
+  const updateTournament = async (tournamentId, updates) => {
+    try {
+      await api.put(`/api/admin/tournaments/${tournamentId}`, updates);
+      toast.success('Tournament updated');
+      setEditingTournament(null);
+      fetchAll();
+    } catch (e) { toast.error('Failed to update tournament'); }
+  };
+
+  const deleteTournament = async (tournamentId) => {
+    if (!window.confirm('Delete this tournament? This will also remove all participants.')) return;
+    try {
+      await api.delete(`/api/admin/tournaments/${tournamentId}`);
+      toast.success('Tournament deleted');
+      fetchAll();
+    } catch (e) { toast.error('Failed to delete tournament'); }
+  };
+
+  const savePaymentSettings = async () => {
+    try {
+      await api.post('/api/admin/payment-settings', paymentSettings);
+      toast.success('Payment settings saved');
+    } catch (e) { toast.error('Failed to save payment settings'); }
   };
 
   const updateUserStatus = async (userId, updates) => {
@@ -218,20 +254,21 @@ const AdminPanel = () => {
     { key: 'settings', label: 'Win Rate', icon: Sliders },
     { key: 'tournaments', label: 'Tournaments', icon: Trophy },
     { key: 'commissions', label: 'Commissions', icon: Layers },
+    { key: 'payments', label: 'Payments', icon: Percent },
     { key: 'promotions', label: 'Promos', icon: Gift },
     { key: 'broadcast', label: 'Broadcast', icon: Megaphone },
   ];
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="w-10 h-10 border-2 border-electric border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#080c14]" data-testid="admin-page">
+    <div className="min-h-screen bg-app" data-testid="admin-page">
       <Navbar />
       
       {/* KYC Document Viewer Modal */}
@@ -769,29 +806,199 @@ const AdminPanel = () => {
                 </div>
               </div>
               <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
-                <h2 className="text-sm font-bold text-white mb-4">Active Tournaments</h2>
+                <h2 className="text-sm font-bold text-white mb-4">All Tournaments</h2>
                 {tournaments.length === 0 ? (
                   <p className="text-xs text-gray-600 text-center py-8">No tournaments created yet</p>
                 ) : (
-                  <div className="space-y-2">
-                    {tournaments.map((t, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-black/20 border border-white/[0.04]">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-semibold text-white">{t.name}</span>
-                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${t.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
-                            {t.status?.toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex gap-3 mt-1 text-[10px] text-gray-500">
-                          <span>${t.prize_pool?.toLocaleString()} prize</span>
-                          <span>{t.participants_count || 0} participants</span>
-                          <span className="text-amber-400">{t.tournament_type}</span>
-                        </div>
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+                    {tournaments.map((t) => (
+                      <div key={t.id} className="p-3 rounded-lg bg-black/20 border border-white/[0.04]">
+                        {editingTournament?.id === t.id ? (
+                          <div className="space-y-2">
+                            <input type="text" value={editingTournament.name} onChange={(e) => setEditingTournament({...editingTournament, name: e.target.value})}
+                              className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none" />
+                            <div className="grid grid-cols-2 gap-2">
+                              <input type="number" value={editingTournament.prize_pool} onChange={(e) => setEditingTournament({...editingTournament, prize_pool: parseInt(e.target.value) || 0})}
+                                className="bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white font-mono focus:outline-none" placeholder="Prize pool" />
+                              <select value={editingTournament.status} onChange={(e) => setEditingTournament({...editingTournament, status: e.target.value})}
+                                className="bg-black/30 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none">
+                                <option value="active">Active</option>
+                                <option value="ended">Ended</option>
+                                <option value="cancelled">Cancelled</option>
+                              </select>
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => updateTournament(t.id, editingTournament)}
+                                className="flex-1 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-[10px] font-bold hover:bg-emerald-500/20" data-testid={`save-tournament-${t.id}`}>Save</button>
+                              <button onClick={() => setEditingTournament(null)}
+                                className="flex-1 py-1.5 rounded-lg bg-white/5 text-gray-400 text-[10px] font-bold hover:bg-white/10">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-semibold text-white">{t.name}</span>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                                t.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 
+                                t.status === 'cancelled' ? 'bg-red-500/10 text-red-400' : 
+                                'bg-gray-500/10 text-gray-400'
+                              }`}>
+                                {t.status?.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="flex gap-3 mt-1 text-[10px] text-gray-500">
+                              <span>${t.prize_pool?.toLocaleString()} prize</span>
+                              <span>{t.participants_count || 0} participants</span>
+                              <span className="text-amber-400">{t.tournament_type}</span>
+                            </div>
+                            <div className="flex gap-1.5 mt-2 pt-2 border-t border-white/[0.04]">
+                              <button onClick={() => setEditingTournament({id: t.id, name: t.name, prize_pool: t.prize_pool, status: t.status, tournament_type: t.tournament_type})}
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/5 text-gray-400 text-[10px] hover:bg-white/10 hover:text-white transition-all" data-testid={`edit-tournament-${t.id}`}>
+                                <Pencil className="w-3 h-3" /> Edit
+                              </button>
+                              {t.status === 'active' && (
+                                <button onClick={() => updateTournament(t.id, {status: 'ended'})}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-amber-500/10 text-amber-400 text-[10px] hover:bg-amber-500/20 transition-all" data-testid={`stop-tournament-${t.id}`}>
+                                  <Pause className="w-3 h-3" /> Stop
+                                </button>
+                              )}
+                              {t.status !== 'active' && (
+                                <button onClick={() => updateTournament(t.id, {status: 'active'})}
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-400 text-[10px] hover:bg-emerald-500/20 transition-all">
+                                  <Play className="w-3 h-3" /> Resume
+                                </button>
+                              )}
+                              <button onClick={() => deleteTournament(t.id)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-500/10 text-red-400 text-[10px] hover:bg-red-500/20 transition-all" data-testid={`delete-tournament-${t.id}`}>
+                                <Trash2 className="w-3 h-3" /> Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* PAYMENT SETTINGS TAB */}
+        {activeTab === 'payments' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="grid lg:grid-cols-2 gap-4">
+              {/* Deposit Fees */}
+              <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
+                <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-400" />Deposit Settings
+                </h2>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Deposit Fee (%)</label>
+                      <input type="number" value={paymentSettings.deposit_fee_percent} onChange={(e) => setPaymentSettings({...paymentSettings, deposit_fee_percent: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" step="0.1" data-testid="deposit-fee-percent" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Fixed Fee ($)</label>
+                      <input type="number" value={paymentSettings.deposit_fee_fixed} onChange={(e) => setPaymentSettings({...paymentSettings, deposit_fee_fixed: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" step="0.5" data-testid="deposit-fee-fixed" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Min Deposit ($)</label>
+                      <input type="number" value={paymentSettings.min_deposit} onChange={(e) => setPaymentSettings({...paymentSettings, min_deposit: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="min-deposit" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Max Deposit ($)</label>
+                      <input type="number" value={paymentSettings.max_deposit} onChange={(e) => setPaymentSettings({...paymentSettings, max_deposit: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="max-deposit" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-gray-600 block mb-1">Auto-Approve Below ($)</label>
+                    <input type="number" value={paymentSettings.auto_approve_deposits_below} onChange={(e) => setPaymentSettings({...paymentSettings, auto_approve_deposits_below: parseFloat(e.target.value) || 0})}
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="auto-approve-deposits" />
+                    <p className="text-[9px] text-gray-600 mt-1">Set to 0 to require manual approval for all deposits</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                    <p className="text-[10px] text-gray-400">
+                      Example: $1,000 deposit with {paymentSettings.deposit_fee_percent}% + ${paymentSettings.deposit_fee_fixed} fee = 
+                      <span className="text-emerald-400 font-mono font-bold ml-1">
+                        ${(1000 - (1000 * paymentSettings.deposit_fee_percent / 100) - paymentSettings.deposit_fee_fixed).toFixed(2)} credited
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Withdrawal Fees */}
+              <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
+                <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-amber-400" />Withdrawal Settings
+                </h2>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Withdrawal Fee (%)</label>
+                      <input type="number" value={paymentSettings.withdrawal_fee_percent} onChange={(e) => setPaymentSettings({...paymentSettings, withdrawal_fee_percent: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" step="0.1" data-testid="withdrawal-fee-percent" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Fixed Fee ($)</label>
+                      <input type="number" value={paymentSettings.withdrawal_fee_fixed} onChange={(e) => setPaymentSettings({...paymentSettings, withdrawal_fee_fixed: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" step="0.5" data-testid="withdrawal-fee-fixed" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Min Withdrawal ($)</label>
+                      <input type="number" value={paymentSettings.min_withdrawal} onChange={(e) => setPaymentSettings({...paymentSettings, min_withdrawal: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="min-withdrawal" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Max Withdrawal ($)</label>
+                      <input type="number" value={paymentSettings.max_withdrawal} onChange={(e) => setPaymentSettings({...paymentSettings, max_withdrawal: parseFloat(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="max-withdrawal" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-gray-600 block mb-1">Processing Time</label>
+                    <select value={paymentSettings.withdrawal_processing_time} onChange={(e) => setPaymentSettings({...paymentSettings, withdrawal_processing_time: e.target.value})}
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none" data-testid="processing-time">
+                      <option value="instant">Instant</option>
+                      <option value="1h">1 Hour</option>
+                      <option value="6h">6 Hours</option>
+                      <option value="24h">24 Hours</option>
+                      <option value="48h">48 Hours</option>
+                      <option value="72h">72 Hours</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-gray-600 block mb-1">Auto-Approve Below ($)</label>
+                    <input type="number" value={paymentSettings.auto_approve_withdrawals_below} onChange={(e) => setPaymentSettings({...paymentSettings, auto_approve_withdrawals_below: parseFloat(e.target.value) || 0})}
+                      className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" data-testid="auto-approve-withdrawals" />
+                    <p className="text-[9px] text-gray-600 mt-1">Set to 0 to require manual approval for all withdrawals</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                    <p className="text-[10px] text-gray-400">
+                      Example: $500 withdrawal with {paymentSettings.withdrawal_fee_percent}% + ${paymentSettings.withdrawal_fee_fixed} fee = 
+                      <span className="text-amber-400 font-mono font-bold ml-1">
+                        ${(500 - (500 * paymentSettings.withdrawal_fee_percent / 100) - paymentSettings.withdrawal_fee_fixed).toFixed(2)} received
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-4">
+              <button onClick={savePaymentSettings}
+                className="w-full sm:w-auto px-8 py-3 rounded-xl bg-electric text-white font-semibold text-sm hover:shadow-lg hover:shadow-electric/20 transition-all"
+                data-testid="save-payment-settings">Save Payment Settings</button>
             </div>
           </motion.div>
         )}

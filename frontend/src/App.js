@@ -2,6 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import PageBackground from './components/PageBackground';
+import InstallPrompt from './components/InstallPrompt';
 
 import Landing from './pages/Landing';
 import Auth from './pages/Auth';
@@ -20,7 +22,7 @@ const ProtectedRoute = ({ children, adminOnly = false, realOnly = false }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-electric border-t-transparent rounded-full"></div>
       </div>
     );
@@ -38,7 +40,7 @@ const PublicRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-electric border-t-transparent rounded-full"></div>
       </div>
     );
@@ -57,7 +59,7 @@ const SetupRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-electric border-t-transparent rounded-full"></div>
       </div>
     );
@@ -93,8 +95,10 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <div className="min-h-screen bg-[#080c14] text-gray-300 font-sans overflow-x-hidden antialiased">
+        <div className="min-h-screen bg-app text-gray-300 font-sans overflow-x-hidden antialiased">
+          <PageBackground />
           <AppRoutes />
+          <InstallPrompt />
           <Toaster
             position="bottom-right"
             toastOptions={{

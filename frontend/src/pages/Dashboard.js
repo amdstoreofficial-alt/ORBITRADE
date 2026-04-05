@@ -270,7 +270,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#080c14] flex items-center justify-center">
+      <div className="min-h-screen bg-app flex items-center justify-center">
         <motion.div className="flex flex-col items-center gap-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <div className="relative">
             <div className="w-16 h-16 border-4 border-electric/30 rounded-full"></div>
@@ -283,7 +283,7 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#080c14]" data-testid="dashboard">
+    <div className="min-h-screen flex flex-col bg-app" data-testid="dashboard">
       <Navbar />
       
       {/* Subtle ambient background */}

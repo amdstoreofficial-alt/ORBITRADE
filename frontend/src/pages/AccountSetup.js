@@ -26,7 +26,7 @@ const AccountSetup = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#080c14] flex items-center justify-center p-4" data-testid="account-setup">
+    <div className="min-h-screen bg-app flex items-center justify-center p-4" data-testid="account-setup">
       <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-[400px] h-[400px] bg-electric/[0.04] rounded-full blur-[100px]"></div>
         <div className="absolute bottom-1/4 right-1/4 w-[300px] h-[300px] bg-emerald-500/[0.04] rounded-full blur-[100px]"></div>
