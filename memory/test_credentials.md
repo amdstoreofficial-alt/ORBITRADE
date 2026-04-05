@@ -15,5 +15,5 @@
 - Switch between demo/real mode in account setup
 
 ## App URL
-- Frontend: https://trade-orbit.preview.emergentagent.com
-- Backend API: https://trade-orbit.preview.emergentagent.com/api
+- Frontend: https://crypto-trade-demo.preview.emergentagent.com
+- Backend API: https://crypto-trade-demo.preview.emergentagent.com/api
