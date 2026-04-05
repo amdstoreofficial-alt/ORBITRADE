@@ -83,8 +83,20 @@ Build a comprehensive binary options trading platform supporting Forex, Cryptocu
 - Metal prices use fawazahmed0 API (may differ from TradingView)
 - CoinGecko crypto API rate-limited with fallback caching
 
+### v3.1 — Manual Crypto Deposit with Trx ID (April 5, 2026)
+- **Deposit Page Rewrite** — 3-step flow: Select crypto, View QR + address, Submit tx details
+- **Transaction Hash Input** — Required Trx ID/hash field for deposit verification
+- **Screenshot Upload** — Optional base64 receipt screenshot attachment
+- **Blockchain Confirmation Animation** — Animated overlay with orbiting dots, rotating rings, and step-by-step progress
+- **Deposit History** — Live list of user deposits with status indicators (Confirming/Confirmed/Rejected)
+- **Backend Endpoints** — POST /api/deposits, GET /api/deposits, admin deposit management
+
 ## Upcoming Tasks
+- P0: Touch/No Touch trading options UI (backend ready)
+- P0: Admin KYC document viewer & deposit management tabs
+- P0: Affiliate system overhaul (3-tier commissions, backend ready)
+- P0: Password reset flow (frontend page, backend ready)
 - P1: Email Notifications (SendGrid)
-- P1: Touch/No Touch option types
+- P1: Refactor server.py (2200+ lines) into separate route files
 - P2: Real payment gateway integration
-- P2: Backend refactoring (split server.py)
+- P2: S3 storage for KYC docs
