@@ -4,7 +4,7 @@ import {
   Users, DollarSign, TrendingUp, Shield, BarChart3, Search, 
   ChevronDown, Check, X, Send, Megaphone, Eye, Edit3,
   UserCheck, UserX, Wallet, AlertCircle, Gift, Settings, Activity,
-  FileText, Image, Layers, PiggyBank, CreditCard, Download
+  FileText, Image, Layers, PiggyBank, CreditCard, Download, Trophy, Bell, Sliders
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +22,7 @@ const AdminPanel = () => {
   const [commissionStructures, setCommissionStructures] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [notifications, setNotifications] = useState([]);
   
   // Broadcast state
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -29,10 +30,25 @@ const AdminPanel = () => {
   const [broadcasting, setBroadcasting] = useState(false);
   
   // Promo state
-  const [promoForm, setPromoForm] = useState({ name: '', bonus_percent: 50, min_deposit: 100, max_bonus: 500 });
+  const [promoForm, setPromoForm] = useState({ name: '', bonus_percent: 50, min_deposit: 100, max_bonus: 500, wagering_requirement: 30 });
   
   // Commission structure state
   const [commissionForm, setCommissionForm] = useState({ direct_percent: 5, indirect_percent: 2, revenue_share_percent: 10, levels: 3 });
+  
+  // Platform settings (Win Rate Control)
+  const [platformSettings, setPlatformSettings] = useState({ platform_win_rate: 45, min_win_rate: 30, max_win_rate: 60, asset_overrides: {} });
+  
+  // Tournament state
+  const [tournamentForm, setTournamentForm] = useState({
+    name: 'Weekly Trading Tournament',
+    description: 'Compete for the highest profit!',
+    tournament_type: 'weekly',
+    prize_pool: 1000,
+    prizes: [500, 300, 200],
+    start_date: new Date().toISOString().slice(0, 16),
+    end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
+  });
+  const [tournaments, setTournaments] = useState([]);
   
   // User edit state
   const [editingUser, setEditingUser] = useState(null);
@@ -46,7 +62,7 @@ const AdminPanel = () => {
   // Deposit screenshot viewer
   const [viewingDeposit, setViewingDeposit] = useState(null);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); fetchNotifications(); }, []);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -63,12 +79,16 @@ const AdminPanel = () => {
       setDeposits(Array.isArray(depositsRes.data) ? depositsRes.data : []);
       
       try {
-        const [promoRes, commRes] = await Promise.all([
+        const [promoRes, commRes, settingsRes, tournamentsRes] = await Promise.all([
           api.get('/api/admin/promotions'),
-          api.get('/api/admin/commission-structure')
+          api.get('/api/admin/commission-structure'),
+          api.get('/api/admin/platform-settings'),
+          api.get('/api/tournaments')
         ]);
         setPromotions(promoRes.data || []);
         setCommissionStructures(commRes.data || []);
+        setPlatformSettings(settingsRes.data || { platform_win_rate: 45 });
+        setTournaments(tournamentsRes.data || []);
         if (commRes.data?.[0]) {
           setCommissionForm({
             direct_percent: commRes.data[0].direct_percent || 5,
@@ -80,6 +100,28 @@ const AdminPanel = () => {
       } catch (e) {}
     } catch (e) { toast.error('Failed to load admin data'); }
     finally { setLoading(false); }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await api.get('/api/notifications?unread_only=true');
+      setNotifications(res.data || []);
+    } catch (e) {}
+  };
+
+  const savePlatformSettings = async () => {
+    try {
+      await api.post('/api/admin/platform-settings', platformSettings);
+      toast.success('Platform settings saved');
+    } catch (e) { toast.error('Failed to save settings'); }
+  };
+
+  const createTournament = async () => {
+    try {
+      await api.post('/api/admin/tournaments', tournamentForm);
+      toast.success('Tournament created');
+      fetchAll();
+    } catch (e) { toast.error('Failed to create tournament'); }
   };
 
   const updateUserStatus = async (userId, updates) => {
@@ -173,9 +215,11 @@ const AdminPanel = () => {
     { key: 'users', label: 'Users', icon: Users },
     { key: 'deposits', label: 'Deposits', icon: CreditCard },
     { key: 'withdrawals', label: 'Withdrawals', icon: Wallet },
+    { key: 'settings', label: 'Win Rate', icon: Sliders },
+    { key: 'tournaments', label: 'Tournaments', icon: Trophy },
     { key: 'commissions', label: 'Commissions', icon: Layers },
-    { key: 'broadcast', label: 'Broadcast', icon: Megaphone },
     { key: 'promotions', label: 'Promos', icon: Gift },
+    { key: 'broadcast', label: 'Broadcast', icon: Megaphone },
   ];
 
   if (loading) {
@@ -586,7 +630,7 @@ const AdminPanel = () => {
                 <div className="space-y-3">
                   <input type="text" value={promoForm.name} onChange={(e) => setPromoForm({...promoForm, name: e.target.value})}
                     className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" placeholder="Promotion name..." data-testid="promo-name" />
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-[9px] text-gray-600 block mb-1">Bonus %</label>
                       <input type="number" value={promoForm.bonus_percent} onChange={(e) => setPromoForm({...promoForm, bonus_percent: parseFloat(e.target.value) || 0})}
@@ -602,7 +646,13 @@ const AdminPanel = () => {
                       <input type="number" value={promoForm.max_bonus} onChange={(e) => setPromoForm({...promoForm, max_bonus: parseFloat(e.target.value) || 0})}
                         className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" />
                     </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Wagering Req (x)</label>
+                      <input type="number" value={promoForm.wagering_requirement || 30} onChange={(e) => setPromoForm({...promoForm, wagering_requirement: parseInt(e.target.value) || 30})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" />
+                    </div>
                   </div>
+                  <p className="text-[9px] text-gray-600">Wagering: User must trade {promoForm.wagering_requirement || 30}x bonus amount to withdraw</p>
                   <button onClick={createPromotion} className="w-full py-2.5 rounded-xl bg-electric text-white text-sm font-medium" data-testid="create-promo">Create</button>
                 </div>
               </div>
@@ -621,7 +671,121 @@ const AdminPanel = () => {
                           </span>
                         </div>
                         <div className="flex gap-3 mt-1 text-[10px] text-gray-500">
-                          <span>{p.bonus_percent}% bonus</span><span>Min: ${p.min_deposit}</span><span>Max: ${p.max_bonus}</span>
+                          <span>{p.bonus_percent}% bonus</span><span>Min: ${p.min_deposit}</span><span>{p.wagering_requirement || 30}x wager</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* PLATFORM SETTINGS (Win Rate Control) TAB */}
+        {activeTab === 'settings' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl">
+            <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
+              <h2 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-electric" />Platform Win Rate Control
+              </h2>
+              <p className="text-[10px] text-gray-500 mb-4">Configure the house edge. Lower user win rate = higher platform profit.</p>
+              
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-[10px] text-gray-500 uppercase tracking-wider">User Win Rate %</label>
+                    <span className="font-mono text-lg text-electric">{platformSettings.platform_win_rate}%</span>
+                  </div>
+                  <input type="range" min="20" max="70" value={platformSettings.platform_win_rate}
+                    onChange={(e) => setPlatformSettings({...platformSettings, platform_win_rate: parseInt(e.target.value)})}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-electric" data-testid="win-rate-slider" />
+                  <div className="flex justify-between text-[9px] text-gray-600 mt-1">
+                    <span>20% (High house edge)</span>
+                    <span>70% (Low house edge)</span>
+                  </div>
+                </div>
+                
+                <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                  <div className="flex items-center gap-2 text-xs text-amber-400 mb-1">
+                    <AlertCircle className="w-4 h-4" />
+                    <span className="font-bold">House Edge: {100 - platformSettings.platform_win_rate}%</span>
+                  </div>
+                  <p className="text-[10px] text-gray-500">On average, for every $100 wagered, the platform retains ${100 - platformSettings.platform_win_rate} profit.</p>
+                </div>
+                
+                <button onClick={savePlatformSettings}
+                  className="w-full py-3 rounded-xl bg-electric text-white font-semibold text-sm hover:shadow-lg hover:shadow-electric/20 transition-all"
+                  data-testid="save-settings">Save Platform Settings</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* TOURNAMENTS TAB */}
+        {activeTab === 'tournaments' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
+                <h2 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-yellow-400" />Create Tournament
+                </h2>
+                <div className="space-y-3">
+                  <input type="text" value={tournamentForm.name} onChange={(e) => setTournamentForm({...tournamentForm, name: e.target.value})}
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none" placeholder="Tournament name" />
+                  <textarea value={tournamentForm.description} onChange={(e) => setTournamentForm({...tournamentForm, description: e.target.value})}
+                    className="w-full bg-black/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none resize-none" rows={2} placeholder="Description..." />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Prize Pool ($)</label>
+                      <input type="number" value={tournamentForm.prize_pool} onChange={(e) => setTournamentForm({...tournamentForm, prize_pool: parseInt(e.target.value) || 0})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white font-mono focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Type</label>
+                      <select value={tournamentForm.tournament_type} onChange={(e) => setTournamentForm({...tournamentForm, tournament_type: e.target.value})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">Start Date</label>
+                      <input type="datetime-local" value={tournamentForm.start_date} onChange={(e) => setTournamentForm({...tournamentForm, start_date: e.target.value})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-gray-600 block mb-1">End Date</label>
+                      <input type="datetime-local" value={tournamentForm.end_date} onChange={(e) => setTournamentForm({...tournamentForm, end_date: e.target.value})}
+                        className="w-full bg-black/30 border border-white/10 rounded-lg px-2 py-2 text-xs text-white focus:outline-none" />
+                    </div>
+                  </div>
+                  <button onClick={createTournament} className="w-full py-2.5 rounded-xl bg-yellow-500 text-black font-bold text-sm" data-testid="create-tournament">
+                    Create Tournament
+                  </button>
+                </div>
+              </div>
+              <div className="bg-white/[0.02] rounded-xl border border-white/[0.06] p-5">
+                <h2 className="text-sm font-bold text-white mb-4">Active Tournaments</h2>
+                {tournaments.length === 0 ? (
+                  <p className="text-xs text-gray-600 text-center py-8">No tournaments created yet</p>
+                ) : (
+                  <div className="space-y-2">
+                    {tournaments.map((t, i) => (
+                      <div key={i} className="p-3 rounded-lg bg-black/20 border border-white/[0.04]">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-white">{t.name}</span>
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${t.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-gray-500/10 text-gray-400'}`}>
+                            {t.status?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="flex gap-3 mt-1 text-[10px] text-gray-500">
+                          <span>${t.prize_pool?.toLocaleString()} prize</span>
+                          <span>{t.participants_count || 0} participants</span>
+                          <span className="text-amber-400">{t.tournament_type}</span>
                         </div>
                       </div>
                     ))}

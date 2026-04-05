@@ -12,6 +12,8 @@ import Admin from './pages/Admin';
 import Deposit from './pages/Deposit';
 import Withdraw from './pages/Withdraw';
 import Affiliate from './pages/Affiliate';
+import Legal from './pages/Legal';
+import Tournaments from './pages/Tournaments';
 
 const ProtectedRoute = ({ children, adminOnly = false, realOnly = false }) => {
   const { isAuthenticated, isAdmin, loading, needsAccountSetup, isDemoMode } = useAuth();
@@ -79,7 +81,9 @@ function AppRoutes() {
       <Route path="/deposit/success" element={<ProtectedRoute><Deposit /></ProtectedRoute>} />
       <Route path="/withdraw" element={<ProtectedRoute><Withdraw /></ProtectedRoute>} />
       <Route path="/affiliate" element={<ProtectedRoute><Affiliate /></ProtectedRoute>} />
+      <Route path="/tournaments" element={<ProtectedRoute><Tournaments /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+      <Route path="/legal/:type" element={<Legal />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

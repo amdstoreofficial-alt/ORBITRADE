@@ -674,6 +674,178 @@ class OrbitalAPITester:
             
         return success
 
+    def test_platform_settings(self):
+        """Test platform settings (Win Rate Control) endpoints"""
+        if not self.admin_token:
+            self.log("❌ No admin token available for platform settings test")
+            return False
+            
+        # Test GET platform settings
+        success1, response1 = self.run_test(
+            "Get Platform Settings (Win Rate Control)",
+            "GET",
+            "/api/admin/platform-settings",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success1 and isinstance(response1, dict):
+            if 'platform_win_rate' in response1:
+                self.log(f"✅ Current platform win rate: {response1['platform_win_rate']}%")
+            
+        # Test POST platform settings (save)
+        success2, response2 = self.run_test(
+            "Save Platform Settings (Win Rate Control)",
+            "POST",
+            "/api/admin/platform-settings",
+            200,
+            data={
+                "platform_win_rate": 45,
+                "min_win_rate": 30,
+                "max_win_rate": 60,
+                "asset_overrides": {}
+            },
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        return success1 and success2
+
+    def test_tournaments(self):
+        """Test tournaments endpoints"""
+        # Test GET tournaments (public endpoint)
+        success1, response1 = self.run_test(
+            "Get Tournaments List",
+            "GET",
+            "/api/tournaments",
+            200
+        )
+        
+        if success1 and isinstance(response1, list):
+            self.log(f"✅ Found {len(response1)} tournaments")
+            for tournament in response1[:3]:  # Show first 3
+                name = tournament.get('name', 'Unknown')
+                status = tournament.get('status', 'unknown')
+                prize_pool = tournament.get('prize_pool', 0)
+                self.log(f"   - {name} ({status}) - ${prize_pool} prize pool")
+        
+        # Test admin create tournament
+        if not self.admin_token:
+            self.log("❌ No admin token available for tournament creation test")
+            return success1
+            
+        success2, response2 = self.run_test(
+            "Create Tournament (Admin)",
+            "POST",
+            "/api/admin/tournaments",
+            200,
+            data={
+                "name": "API Test Tournament",
+                "description": "Tournament created via API test",
+                "tournament_type": "weekly",
+                "prize_pool": 1000,
+                "prizes": [500, 300, 200],
+                "start_date": "2026-01-01T00:00:00",
+                "end_date": "2026-01-08T00:00:00"
+            },
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        # Test tournament leaderboard (if tournaments exist)
+        if success1 and response1 and len(response1) > 0:
+            tournament_id = response1[0].get('id')
+            if tournament_id:
+                success3, response3 = self.run_test(
+                    "Get Tournament Leaderboard",
+                    "GET",
+                    f"/api/tournaments/{tournament_id}/leaderboard",
+                    200
+                )
+                if success3 and isinstance(response3, list):
+                    self.log(f"✅ Tournament leaderboard has {len(response3)} participants")
+        
+        return success1 and (success2 if self.admin_token else True)
+
+    def test_notifications(self):
+        """Test notifications endpoints"""
+        if not self.admin_token:
+            self.log("❌ No admin token available for notifications test")
+            return False
+            
+        # Test GET notifications
+        success1, response1 = self.run_test(
+            "Get Notifications",
+            "GET",
+            "/api/notifications",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success1 and isinstance(response1, list):
+            self.log(f"✅ Found {len(response1)} notifications")
+            for notification in response1[:3]:  # Show first 3
+                title = notification.get('title', 'No title')
+                type_val = notification.get('type', 'unknown')
+                self.log(f"   - {title} ({type_val})")
+        
+        # Test unread notifications
+        success2, response2 = self.run_test(
+            "Get Unread Notifications",
+            "GET",
+            "/api/notifications?unread_only=true",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success2 and isinstance(response2, list):
+            self.log(f"✅ Found {len(response2)} unread notifications")
+        
+        return success1 and success2
+
+    def test_promotions_with_wagering(self):
+        """Test promotions with wagering requirements (Deposit Bonus System)"""
+        if not self.admin_token:
+            self.log("❌ No admin token available for promotions test")
+            return False
+            
+        # Test GET promotions
+        success1, response1 = self.run_test(
+            "Get Promotions (Deposit Bonus System)",
+            "GET",
+            "/api/admin/promotions",
+            200,
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success1 and isinstance(response1, list):
+            self.log(f"✅ Found {len(response1)} promotions")
+            for promo in response1[:3]:  # Show first 3
+                name = promo.get('name', 'Unknown')
+                bonus_percent = promo.get('bonus_percent', 0)
+                wagering_req = promo.get('wagering_requirement', 'N/A')
+                self.log(f"   - {name}: {bonus_percent}% bonus, {wagering_req}x wagering")
+        
+        # Test POST create promotion with wagering requirement
+        success2, response2 = self.run_test(
+            "Create Promotion with Wagering Requirement",
+            "POST",
+            "/api/admin/promotions",
+            200,
+            data={
+                "name": "API Test Bonus",
+                "bonus_percent": 50,
+                "min_deposit": 100,
+                "max_bonus": 500,
+                "wagering_requirement": 30,
+                "active": True
+            },
+            headers=self.get_auth_headers(use_admin=True)
+        )
+        
+        if success2:
+            self.log("✅ Promotion with wagering requirement created successfully")
+        
+        return success1 and success2
+
     def run_all_tests(self):
         """Run all backend tests in sequence"""
         self.log("Starting ORBITAL Trading Platform Backend Tests")
@@ -725,6 +897,13 @@ class OrbitalAPITester:
         self.log("\n--- Admin Feature Tests ---")
         self.test_admin_commission_structure()
         self.test_admin_deposits()
+        
+        # New Production Features Tests
+        self.log("\n--- New Production Features Tests ---")
+        self.test_platform_settings()
+        self.test_tournaments()
+        self.test_notifications()
+        self.test_promotions_with_wagering()
         
         # Summary
         self.log("\n" + "=" * 60)

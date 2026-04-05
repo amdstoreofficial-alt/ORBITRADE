@@ -290,9 +290,9 @@ const Landing = () => {
             <div>
               <h4 className="font-medium text-white mb-4">Legal</h4>
               <ul className="space-y-2 text-sm text-gray-400">
-                <li className="hover:text-white cursor-pointer">Terms of Service</li>
-                <li className="hover:text-white cursor-pointer">Privacy Policy</li>
-                <li className="hover:text-white cursor-pointer">Risk Disclosure</li>
+                <li><Link to="/legal/terms" className="hover:text-white">Terms of Service</Link></li>
+                <li><Link to="/legal/privacy" className="hover:text-white">Privacy Policy</Link></li>
+                <li><Link to="/legal/risk" className="hover:text-white">Risk Disclosure</Link></li>
                 <li className="hover:text-white cursor-pointer">AML Policy</li>
               </ul>
             </div>

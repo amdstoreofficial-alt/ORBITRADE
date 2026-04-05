@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BarChart3, LogOut, Menu, X, ArrowLeftRight, User } from 'lucide-react';
+import { BarChart3, LogOut, Menu, X, ArrowLeftRight, User, Trophy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
@@ -52,6 +52,7 @@ const Navbar = () => {
                 {navLink('/dashboard', 'Dashboard', 'nav-dashboard')}
                 {navLink('/deposit', 'Deposit', 'nav-deposit')}
                 {!isDemoMode && navLink('/withdraw', 'Withdraw', 'nav-withdraw')}
+                {navLink('/tournaments', 'Tournaments', 'nav-tournaments')}
                 {!isDemoMode && navLink('/affiliate', 'Affiliate', 'nav-affiliate')}
                 {isAdmin && navLink('/admin', 'Admin', 'nav-admin')}
 

